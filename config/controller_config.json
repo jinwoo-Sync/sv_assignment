@@ -1,0 +1,65 @@
+{
+  "_comment": "Controller 설정 — 핫-리로드 가능 (파일 변경 후 ~1초 내 자동 반영)",
+
+  "network": {
+    "listen_addr":    "0.0.0.0",
+    "listen_port":    9090,
+    "thread_pool_size": 64,
+    "backlog":        128,
+    "tcp_nodelay":    true
+  },
+
+  "metrics": {
+    "enabled":    true,
+    "listen_addr":"0.0.0.0",
+    "listen_port": 9091,
+    "path":       "/metrics"
+  },
+
+  "health": {
+    "heartbeat_timeout_ms": 3000,
+    "check_interval_ms":    500
+  },
+
+  "command_bus": {
+    "max_retries":        3,
+    "base_backoff_ms":    1000,
+    "max_backoff_ms":     30000,
+    "ack_timeout_ms":     2000
+  },
+
+  "policy": {
+    "_comment": "임계값 변경 시 핫-리로드로 즉시 반영됨 (재시작 불필요)",
+    "cpu_threshold_pct":  80.0,
+    "temp_threshold_c":   75.0,
+    "load_avg_threshold": 1.5,
+    "rules": [
+      {
+        "name":      "high_temperature_stop",
+        "condition": "temperature >= temp_threshold_c",
+        "action":    "CMD_STOP",
+        "priority":  1
+      },
+      {
+        "name":      "high_load_setmode",
+        "condition": "avg_load_pct >= load_avg_threshold AND mode == Active",
+        "action":    "CMD_SET_MODE",
+        "payload":   { "mode": "Maintenance" },
+        "group":     "",
+        "priority":  2
+      }
+    ]
+  },
+
+  "message_pool": {
+    "block_size_bytes": 512,
+    "pool_capacity":    256
+  },
+
+  "graceful_shutdown": {
+    "flush_timeout_ms":       5000,
+    "broadcast_stop_timeout": 3000
+  },
+
+  "log_level": "INFO"
+}

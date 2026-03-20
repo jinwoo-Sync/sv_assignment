@@ -1,0 +1,36 @@
+{
+  "_comment": "Agent 설정 — UpdateConfig 명령 수신 또는 파일 변경 감지 시 핫-리로드",
+
+  "identity": {
+    "agent_id": "",
+    "_comment_agent_id": "비워두면 AGENT_ID 환경 변수에서 읽음",
+    "group":    "sensor-group-A",
+    "version":  "1.0.0"
+  },
+
+  "network": {
+    "controller_addr": "controller",
+    "controller_port": 9090,
+    "reconnect": {
+      "base_backoff_ms": 1000,
+      "max_backoff_ms":  30000,
+      "max_attempts":    10
+    }
+  },
+
+  "reporting": {
+    "heartbeat_interval_ms": 1000,
+    "state_interval_ms":     3000
+  },
+
+  "simulator": {
+    "_comment": "장치 시뮬레이터 파라미터 ",
+    "cpu_base_idle_pct":    10.0,
+    "cpu_base_active_pct":  40.0,
+    "temp_base_idle_c":     30.0,
+    "temp_base_active_c":   45.0,
+    "noise_amplitude":       0.3
+  },
+
+  "log_level": "INFO"
+}
