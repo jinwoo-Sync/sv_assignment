@@ -132,6 +132,23 @@ Agent
  └── unique_ptr<DeviceSimulator>
 ```
 
+### 5.1 Message/Buffer 소유권 (MemoryPool)
+
+- **왜 먼저 하나?** `요구사항.pdf` 에 명시된 “가변 길이 payload 버퍼 수명/소유권 관리 + 메모리 풀” 요구를 바로 만족시키기 위해 가장 먼저 MemoryPool 모듈을 추가 하였다. Wire Protocol encode/decode, CommandBus 재시도 큐, Agent TCP 송신 큐 등 기본적으로 요구사항이 카메라 4k 여러대나 혹은 여러 페이로드로 쪼개서 보내야 하는 데이터를 다루기 위해 만들어진 요구사항이라고 생각되어서 3.동적 메모리 관리 요구사항 및 6. 프로토콜(예시)의 요구: 가변 길이 payload의 버퍼 수명/소유권을 안전하게 처리(복사/이동/뷰 전략 명시). 기능을 먼저 구현하여 검증된 코드로 이후 진행될 부분들을 진행하고자 한다. 
+
+- **어떻게 쓰나?**
+  - `MemoryPool::acquire()` → `PooledBuffer` (복사 금지, 이동만 가능) 을 받는다. 함수나 큐 사이를 옮길 때 `std::move` 를 쓰면 “버퍼 주인”이 누군지 바로 보인다.
+
+
+- **추후 검증**
+  - MemoryPool hit/miss 를 Prometheus 메트릭으로 노출해 PERF 목표(P5 ≥ 95%) 확인.
+  - Wire Protocol encode/decode 가 완성되면 실제 사용 예/다이어그램을 추가해 다시 정리한다.
+
+### 5.2 구현 주의사항 (진행 중)
+
+- **scope 보장**: MemoryPool 은 Controller(or Agent) 소유 멤버로 고정하고, `PooledBuffer` 는 그 내부에서만 생성/소멸한다. Controller 생명주기 밖에서 버퍼가 남아 있을 수 없도록 구조 자체로 보장한다.
+- **현황**: RAII 기반 move-only 핸들 구현 완료 (Resource Acquisition Is Initialization) + 소유권 검증 로직(owns) 반영 중.
+
 ## 6. 주요 동작 흐름
 
 ### 6.0 기초 통신 확인 [DONE]
