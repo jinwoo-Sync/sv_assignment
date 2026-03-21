@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "logger/logger_factory.hpp"
+#include "logger_factory.h"
 
 TEST(LoggerTest, InitAndGet) {
     sv::LoggerFactory::instance().init(sv::LogLevel::DEBUG);
