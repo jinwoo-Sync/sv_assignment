@@ -1,0 +1,26 @@
+name: sv-assignment
+
+services:
+  controller:
+    container_name: sv-controller
+    build:
+      context: ./
+      dockerfile: src/controller/Dockerfile
+    ports:
+      - "9090:9090"
+    networks:
+      - sv_network
+
+  agent:
+    container_name: sv-agent
+    build:
+      context: ./
+      dockerfile: src/agent/Dockerfile
+    depends_on:
+      - controller
+    networks:
+      - sv_network
+
+networks:
+  sv_network:
+    driver: bridge

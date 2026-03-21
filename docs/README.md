@@ -60,7 +60,7 @@ sv_assignment/
 | 언어 | C++14 |
 | 빌드 | CMake ≥ 3.14 |
 | JSON | nlohmann/json 3.10.5 (apt 또는 FetchContent) |
-| 테스트 | Catch2 v2.13.10 (FetchContent 자동) |
+| 테스트 | GoogleTest v1.14.0 (FetchContent 자동) |
 | 컨테이너 | Docker + Docker Compose |
 | 서브모듈 | sv_assignment_core_module (`src/libs/`) |
 

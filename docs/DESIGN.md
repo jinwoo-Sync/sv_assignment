@@ -1,16 +1,17 @@
 # DESIGN — 아키텍처 및 설계
 
-## 1. 시스템 구성
+## 1. 시스템 구성 [DONE && Todo]
 
 ```
 [agent-1]──┐
-[agent-2]──┼──TCP 9090──► [controller]──:9091 Prometheus metrics
+[agent-2]──┼──TCP 9090 (sv_network)──► [controller]──:9091 Prometheus metrics
 [agent-3]──┘
 ```
 
-- **controller**: Agent 상태 수집, 헬스체크, 정책 평가, 명령 발행
-- **agent**: 장치 시뮬레이터. 센서값(CPU/온도/부하) 생성, 명령 수신·실행
+- **controller**: Agent 상태 수집, 헬스체크, 정책 평가, 명령 발행 (Docker 서비스명: `controller`)
+- **agent**: 장치 시뮬레이터. 센서값(CPU/온도/부하) 생성, 명령 수신·실행 (Docker 서비스명: `agent`)
 - **libs** (`sv_assignment_core_module`): 두 이미지가 공유하는 공용 라이브러리
+- **Network**: Docker `bridge` 네트워크(`sv_network`)를 통해 서비스 이름으로 상호 호스트 해석 가능
 
 ## 2. Wire Protocol
 
@@ -71,7 +72,7 @@ public:
                                                const std::string& group = "") = 0;
 };
 
-// IStateStore<T> — 상태 중앙 관리 (C# INotifyPropertyChanged 대응)
+// IStateStore<T> — 상태 중앙 관리 (C# INotifyPropertyChanged)
 // dispatch → reduce → notify_all(old, new)
 template<typename TState>
 class IStateStore {
@@ -132,6 +133,15 @@ Agent
 ```
 
 ## 6. 주요 동작 흐름
+
+### 6.0 기초 통신 확인 [DONE]
+현재 구현된 가장 기본적인 통신 구조 / 연결을 먼저 시키고 모듈과 기능을 붙이는 작업 진행 예정.
+
+1. **대기**: **Controller**가 9090 포트를 열고 연결을 기다림.
+2. **노크**: **Agent**가 `controller:9090` 주소로 TCP 연결을 시도.
+3. **인사**: 연결 성공 시 **Agent**가 `"hello from agent"` 메시지를 전송.
+4. **응답**: **Controller**는 메시지 수신 후 `"tcp connection ok"`라고 Respone.
+5. **확인**: 양측 로그에 성공 메시지가 기록되면 기초 통신 환경 구축이 완료된 것.
 
 ### 6.1 정상 흐름
 

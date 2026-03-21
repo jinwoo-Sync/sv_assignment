@@ -1,0 +1,3 @@
+[submodule "src/libs"]
+	path = src/libs
+	url = https://github.com/jinwoo-Sync/sv_assignment_core_module
