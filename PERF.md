@@ -74,3 +74,9 @@ docker compose logs -f controller \
 | mutex 경합 | IStateStore 읽기/쓰기 공유 | 읽기 빈도 높으면 `shared_mutex` 고려 |
 | 스레드 과다 | Thread-per-connection | 50개 이상 시 epoll 전환 (`-DENABLE_EPOLL=ON`) |
 | MessagePool miss | 풀 용량 부족 | `pool_capacity` 를 예상 동시 메시지 수 × 여유율로 설정 |
+
+## 5. 빌드/테스트 이슈 로그
+
+| 시점 | 명령 | 증상 | 원인 / 조치 |
+|------|------|------|--------------|
+| 2024-03-21 | `cmake --build build -DENABLE_ASAN=ON` | `tests/unit/test_logger.cpp` 컴파일 실패 (`auto*` 추론 불가) | `LoggerFactory::instance().get()` 이 `std::shared_ptr<ILogger>` 를 반환하는데 테스트/매크로가 `auto*` 로 받으면서 타입 불일치 발생. `auto logger = ...;` 후 `logger.get()` 사용 or 매크로 내부에서 `.get()` 호출하도록 수정 예정. |
