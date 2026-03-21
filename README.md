@@ -2,16 +2,17 @@
 
 ## 개요
 
-C++14 기반 분산 장치 시뮬레이션 시스템.
-Agent N개가 HEARTBEAT/STATE를 보고하면 Controller가 제어 명령을 발행한다.
+`sv_assignment`는 C++14와 `epoll` 기반으로 구축된 Controller–Agent 분산 장치 관리 시스템이다. 단일 Controller가 다수 Agent의 HEARTBEAT/STATE를 수신하고 필요 시 명령을 내려 장치 플릿을 조율한다. 현재 1:50 스케일까지 검증된 비차단 I/O 경로와 공용 라이브러리가 준비되어 있다.
 
-- **현재 진행**: `epoll` 기반 비동기 네트워킹 구축 및 1:50 부하 테스트 진행 중.
+## 현재 구현 상태
 
----
+- Controller/Agent 모두 단일 `epoll` 이벤트 루프 기반 비차단 TCP 파이프라인.
+- `sv_core`: `MemoryPool`, `TcpProtocol`, `StreamBuffer`, `socket_utils`.
+- `sv_logger`: JSON Lines 출력(`LoggerFactory`, `LOG_xxx` 매크로).
+- 단위 테스트: `LoggerTest` 3건, `MemoryPoolTest` 3건.
+- `test_epoll_scale.sh`: 기존 컨테이너 정리 → 빌드 → Controller 1 vs Agent N 기동 → 로그 스트리밍 자동화.
 
-## 의존성
-
-### 시스템 패키지 (Ubuntu 22.04)
+## 의존성 (Ubuntu 22.04)
 
 ```bash
 sudo apt-get install -y \
@@ -20,42 +21,39 @@ sudo apt-get install -y \
     pkg-config \
     nlohmann-json3-dev \
     git \
-    valgrind
+    valgrind \
+    docker.io \
+    docker-compose
 ```
 
-| 패키지 | 버전 | 용도 |
-|--------|------|------|
-| `cmake` | ≥ 3.14 | `FetchContent`를 통한 외부 라이브러리(GTest 등) 관리 |
-| `nlohmann-json3-dev` | 3.10.5 | JSON 데이터 직렬화 및 파싱 |
-| `docker` | ≥ 20.10 | 컨테이너 기반 격리 환경 구축 |
-| `docker-compose` | ≥ 2.0 | 다중 컨테이너(Agent 50대 등) 오케스트레이션..? 음.. |
-| `valgrind` | - | 메모리 누수 검증 |
-
----
+| 패키지 | 최소 버전 | 용도 |
+|--------|-----------|------|
+| `cmake` | 3.14 | 프로젝트 빌드 및 gtest FetchContent |
+| `nlohmann-json3-dev` | 3.10 | Protocol payload 직렬화 |
+| `docker` / `docker-compose` | 20.10 / 2.0 | Controller/Agent 컨테이너 실행 |
+| `valgrind` | - | MemoryPool 등 메모리 검증 |
 
 ## 프로젝트 구조
 
 ```
 sv_assignment/
 ├── src/
-│   ├── controller/      ← 초기 단계 구현 완료
-│   ├── agent/           ← 초기 단계 구현 완료
-│   └── libs/            ← sv_assignment_core_module (서브모듈)
-│       ├── core/        ← MemoryPool 구현 완료
-│       └── logger/      ← ILogger, JSON Lines 구현 완료
-├── config/              ← 설정 파일
-├── tests/               ← 단위 테스트
-└── *.md                 ← 문서
+│   ├── controller/        # epoll 서버 (9090)
+│   ├── agent/             # 비동기 클라이언트
+│   └── libs/
+│       ├── core/          # MemoryPool, TcpProtocol, socket_utils
+│       └── logger/        # JSON Lines logger
+├── config/                # controller/agent 설정
+├── tests/                 # unit/integration (gtest)
+├── docker/                # Dockerfile, compose
+├── scripts/, test_epoll_scale.sh
+└── *.md                   # 문서
 ```
 
----
-
-## 빌드
+## 빌드 방법
 
 ```bash
 cd src
-
-# Debug (기본)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -- -j$(nproc)
 
@@ -64,51 +62,51 @@ cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release -- -j$(nproc)
 ```
 
+## 테스트
+
+- **단위 테스트 (`sv_logger`, `sv_core`)**
+  ```bash
+  cmake -S . -B build -DENABLE_ASAN=ON
+  cmake --build build
+  LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R LoggerTest --output-on-failure
+  LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R MemoryPoolTest --output-on-failure
+  ```
+
+- **비동기 부하 테스트 (1:N)**
+  ```bash
+  chmod +x test_epoll_scale.sh
+  ./test_epoll_scale.sh 50    # Ctrl+C로 종료 시 자동 정리
+  ```
 
 ## 실행 (Docker Compose)
 
-요구사항 프로세스 배치 부분의 요구사항을 수행하고자 도커 컴포즈로 다중 에이전트를 세팅하는 부분 추가.
-
 ```bash
-# 1. 기본 실행 (Controller 1대, Agent 1대)
-docker compose up --build
+# Controller 1대, Agent 1대
+docker compose -f docker/docker-compose.yml up --build
 
-# 2. 대규모 부하 테스트 (Controller 1대, Agent 50대)
-docker compose up --build --scale agent=50 -d
+# Controller 1대, Agent 50대
+docker compose -f docker/docker-compose.yml up --build --scale agent=50 -d
+docker compose -f docker/docker-compose.yml logs -f
 ```
 
----
+## 관찰 및 디버깅
 
-## 테스트
+- 리소스 모니터링: `docker stats sv-controller --no-stream`.
+- 컨테이너 재기동: `run_step0.sh` 또는 `docker compose down && docker compose up`.
+- 추가 운영/성능 기록은 `OPERATIONS.md`, `PERF.md` 참고.
 
-### 1. 비동기 부하 테스트 (1:N Scale Test)
-단일 컨트롤러가 50개의 에이전트로를 운용시에 cpu 부하 성능 검증
-```bash
-# Agent 50대를 띄워 테스트 (종료 시 Ctrl+C로 자동 정리)
-chmod +x test_epoll_scale.sh
-./test_epoll_scale.sh 50
-```
+## 참고 문서
 
-### 2. 단위 테스트 (Local Build)
-핵심 라이브러리(`sv_logger`, `sv_core`)의 로직을 검증.
-```bash
-cmake -S . -B build -DENABLE_ASAN=ON
-cmake --build build
-LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R LoggerTest --output-on-failure
-LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R MemoryPoolTest --output-on-failure
-```
+- [DESIGN.md](DESIGN.md): epoll 아키텍처, 소유권/MemoryPool 모델
+- [OPERATIONS.md](OPERATIONS.md): 로그·운영 가이드
+- [PERF.md](PERF.md): 성능 측정 시나리오, 빌드/테스트 로그
 
-### 3. 리소스 모니터링
-50대 기동 시 컨트롤러의 실제 CPU/메모리 점유율을 확인.
-```bash
-docker stats
-```
+## 다음 목표
 
----
+1. Wire Protocol encode/decode 구현 및 런타임 통합 (TcpProtocol 사용 대상 정의).
+2. Agent HEARTBEAT + STATE 주기 전송 (cpu/temp/load_avg 보고) 정식 구현.
+3. Controller STATE 수신 → AgentStateStore dispatch 파이프 구축.
+4. ThresholdPolicyEngine 구현으로 상태 기반 명령 결정.
+5. 설정 파일 mtime 폴링 기반 핫 리로드(`loadConfig()` 자동 호출) 완성.
 
-## 문서 목록
-- [COMMON.md](COMMON.md): 공통 코딩 규칙 및 인터페이스 정의
-- [DESIGN.md](DESIGN.md): **비동기 네트워킹(epoll) 아키텍처** 및 1:N 상호작용 설계 추가
-- [PERF.md](PERF.md): 성능 측정 시나리오 및 결과 기록 양식
-
-- [OPERATIONS.md](OPERATIONS.md): 로그 및 운영 가이드
+향후 항목은 `TODO` 목록과 커밋 로그에서 지속 추적한다.

@@ -8,12 +8,12 @@ echo " [epoll 테스트] Controller 1 vs Agent ${AGENT_COUNT}"
 echo " Agent 전송: 2Hz (500ms)"
 echo "=========================================================="
 
-# 이전 컨테이너와 네트워크 찌꺼기를 완전히 정리
+# 이전 컨테이너와 네트워크 완전히 정리
 echo "[1/3] 기존 컨테이너 정리..."
 docker compose -f docker/docker-compose.yml down -v > /dev/null 2>&1
 
-# 빌드 및 스케일 아웃 실행 (백그라운드)
-echo "[2/3] 빌드 + Agent ${AGENT_COUNT} 스케일 아웃..."
+# 빌드 및 실행
+echo "[2/3] 빌드 + Agent ${AGENT_COUNT} ..."
 docker compose -f docker/docker-compose.yml up --build --scale agent=$AGENT_COUNT -d
 
 echo "[3/3] 기동 완료, 로그 스트리밍"
