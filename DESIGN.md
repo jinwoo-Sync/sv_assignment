@@ -143,7 +143,7 @@ Agent
 4. **응답**: **Controller**는 메시지 수신 후 `"tcp connection ok"`라고 Respone.
 5. **확인**: 양측 로그에 성공 메시지가 기록되면 기초 통신 환경 구축이 완료된 것.
 
-### 6.1 정상 흐름 [TODO]
+### 6.1 정상 흐름
 
 ```
 Agent 기동 → HELLO 전송 → Controller 등록
@@ -153,7 +153,7 @@ PolicyEngine: load_avg > threshold → ICommandBus::broadcast(CMD_SET_MODE)
 Agent CMD_SET_MODE 수신 → ACK 응답 → mode 변경
 ```
 
-### 6.2 헬스체크 타임아웃 [TODO]
+### 6.2 헬스체크 타임아웃
 
 ```
 HealthMonitor 500ms 주기 폴링
@@ -161,7 +161,7 @@ now - last_heartbeat > 3000ms → agent.alive = false
 → IStateStore dispatch(agent_dead) → IPolicyEngine → CMD_STOP (보상)
 ```
 
-### 6.3 명령 재시도 [TODO]
+### 6.3 명령 재시도
 
 ```
 ICommandBus::dispatch → ACK 대기 2s

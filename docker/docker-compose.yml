@@ -4,8 +4,8 @@ services:
   controller:
     container_name: sv-controller
     build:
-      context: ./
-      dockerfile: src/controller/Dockerfile
+      context: ../
+      dockerfile: docker/controller.Dockerfile
     ports:
       - "9090:9090"
     networks:
@@ -14,8 +14,8 @@ services:
   agent:
     container_name: sv-agent
     build:
-      context: ./
-      dockerfile: src/agent/Dockerfile
+      context: ../
+      dockerfile: docker/agent.Dockerfile
     depends_on:
       - controller
     networks:

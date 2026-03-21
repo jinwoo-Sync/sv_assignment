@@ -10,16 +10,13 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /build
 COPY . .
 
-RUN ls -la /build
-RUN ls -la /build/src
-WORKDIR /build/src/controller
-RUN cmake . && make
+RUN cmake -B build && cmake --build build --target controller
 
 # Runtime stage
 FROM ubuntu:20.04
 
 WORKDIR /app
-COPY --from=builder /build/src/controller/controller .
+COPY --from=builder /build/build/controller/controller .
 
 EXPOSE 9090
 CMD ["./controller"]

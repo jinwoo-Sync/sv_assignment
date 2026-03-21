@@ -10,15 +10,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /build
 COPY . .
 
-RUN ls -la /build
-RUN ls -la /build/src
-WORKDIR /build/src/agent
-RUN cmake . && make
+RUN cmake -B build && cmake --build build --target agent
 
 # Runtime stage
 FROM ubuntu:20.04
 
 WORKDIR /app
-COPY --from=builder /build/src/agent/agent .
+COPY --from=builder /build/build/agent/agent .
 
 CMD ["./agent", "controller"]
