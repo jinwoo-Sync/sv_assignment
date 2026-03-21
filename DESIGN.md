@@ -11,7 +11,6 @@
 - **controller**: Agent 상태 수집, 헬스체크, 정책 평가, 명령 발행 (Docker 서비스명: `controller`)
 - **agent**: 장치 시뮬레이터. 센서값(CPU/온도/부하) 생성, 명령 수신·실행 (Docker 서비스명: `agent`)
 - **libs** (`sv_assignment_core_module`): 두 이미지가 공유하는 공용 라이브러리
-- **Network**: Docker `bridge` 네트워크(`sv_network`)를 통해 서비스 이름으로 상호 호스트 해석 가능
 
 ## 2. Wire Protocol
 
@@ -116,38 +115,40 @@ struct ControllerState {
 };
 ```
 
-## 5. 소유권 모델
+## 5. 소유권 모델 및 메모리 관리
 
-```
-Controller
- ├── unique_ptr<TcpServer>
- ├── shared_ptr<IStateStore<ControllerState>>
- ├── shared_ptr<ICommandBus>
- │     └── weak_ptr<IAgentConnection>  ← PendingCmd 에서 사용 (소유 안 함)
- ├── unique_ptr<IPolicyEngine>
- └── map<string, shared_ptr<IAgentConnection>>  ← registry
-
-Agent
- ├── unique_ptr<TcpClient>
- └── unique_ptr<DeviceSimulator>
+```mermaid
+graph TD
+    subgraph "Memory Management (RAII)"
+        MP[MemoryPool] -- "acquire()" --> PB[PooledBuffer]
+        PB -- "std::move()" --> AC[AgentConnection]
+        PB -- "Destructor" --> MP
+    end
 ```
 
-### 5.1 Message/Buffer 소유권 (MemoryPool)
+### 5.1 데이터 버퍼 관리 (MemoryPool)
 
-- **왜 먼저 하나?** `요구사항.pdf` 에 명시된 “가변 길이 payload 버퍼 수명/소유권 관리 + 메모리 풀” 요구를 바로 만족시키기 위해 가장 먼저 MemoryPool 모듈을 추가 하였다. Wire Protocol encode/decode, CommandBus 재시도 큐, Agent TCP 송신 큐 등 기본적으로 요구사항이 카메라 4k 여러대나 혹은 여러 페이로드로 쪼개서 보내야 하는 데이터를 다루기 위해 만들어진 요구사항이라고 생각되어서 3.동적 메모리 관리 요구사항 및 6. 프로토콜(예시)의 요구: 가변 길이 payload의 버퍼 수명/소유권을 안전하게 처리(복사/이동/뷰 전략 명시). 기능을 먼저 구현하여 검증된 코드로 이후 진행될 부분들을 진행하고자 한다. 
+*   **가장 먼저 만든 이유**: 
+    `요구사항.pdf`에서 "데이터 크기가 제각각인 페이로드(Payload)를 안전하게 관리하라"는 내용이 핵심이었기 때문입니다. 특히 고화질 카메라 영상처럼 큰 데이터를 다룰 때 시스템이 느려지는 것을 방지하기 위해, 미리 메모리를 확보해두는 **커스텀 메모리 풀**을 가장 먼저 설계하고 구현함.
 
-- **어떻게 쓰나?**
-  - `MemoryPool::acquire()` → `PooledBuffer` (복사 금지, 이동만 가능) 을 받는다. 함수나 큐 사이를 옮길 때 `std::move` 를 쓰면 “버퍼 주인”이 누군지 바로 보인다.
+*   **어떻게 작동하나? (설계 방향)**:
+    *   **빌려 쓰기**: `MemoryPool::acquire()`를 통해 필요한 만큼 메모리를 소유권 이전 받음 (구현 예정).
+    *   **주인 표시하기**: `std::move`를 사용하여 데이터를 넘겨줌으로써 "누가 데이터를 가지고 있는지" 코드에서 명확히 보이게 함 (구현 예정).
+
+*   **앞으로 할 일**:
+    *   메모리 풀의 실제 사용량(Hit/Miss)을 나중에 그래프로 확인할 수 있게 연결할 예정.
+    *   통신 모듈이 완성되면 데이터가 버퍼를 타고 흐르는 과정을 그림으로 정리 예정.
+
+### 5.2 안전하게 사용하기 (단계별 진행 중)
+
+*   **구현 상태 요약**: 
+    *   **[현재 구현됨]**: 메모리 풀 생성 시 메모리 블록 할당 및 전체 가용 개수 확인(`available()`) 기능.
+    *   **[예정 - 2단계]**: 메모리 블록을 실제로 빌려오는 기능(`acquire()`).
+    *   **[예정 - 3단계]**: 빌려온 버퍼를 다 쓰면 자동으로 반환하는 기능(`PooledBuffer` RAII).
+    *   **[예정 - 4단계]**: 소유권 이전(`std::move`) 및 복사 방지 로직.
+    *   **[예정 - 5단계]**: 외부 메모리 반환 차단 등 안전장치.
 
 
-- **추후 검증**
-  - MemoryPool hit/miss 를 Prometheus 메트릭으로 노출해 PERF 목표(P5 ≥ 95%) 확인.
-  - Wire Protocol encode/decode 가 완성되면 실제 사용 예/다이어그램을 추가해 다시 정리한다.
-
-### 5.2 구현 주의사항 (진행 중)
-
-- **scope 보장**: MemoryPool 은 Controller(or Agent) 소유 멤버로 고정하고, `PooledBuffer` 는 그 내부에서만 생성/소멸한다. Controller 생명주기 밖에서 버퍼가 남아 있을 수 없도록 구조 자체로 보장한다.
-- **현황**: RAII 기반 move-only 핸들 구현 완료 (Resource Acquisition Is Initialization) + 소유권 검증 로직(owns) 반영 중.
 
 ## 6. 주요 동작 흐름
 
@@ -177,13 +178,6 @@ HealthMonitor 500ms 주기 폴링
 now - last_heartbeat > 3000ms → agent.alive = false
 → IStateStore dispatch(agent_dead) → IPolicyEngine → CMD_STOP (보상)
 ```
-
-### 6.3 명령 재시도
-
-```
-ICommandBus::dispatch → ACK 대기 2s
-실패 시 exponential backoff: 1s → 2s → 4s (max 3회)
-3회 초과 → LOG_ERROR, failed_agents 에 기록
 ```
 
 ## 7. 설정 핫-리로드
