@@ -19,6 +19,7 @@ FROM ubuntu:20.04
 WORKDIR /app
 COPY --from=builder /build/build/src/controller/controller .
 COPY --from=builder /build/build/src/libs/core/libsv_core.so /usr/local/lib/
+COPY --from=builder /build/build/src/libs/logger/libsv_logger.so /usr/local/lib/
 RUN ldconfig
 
 EXPOSE 9090

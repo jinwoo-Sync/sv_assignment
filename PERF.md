@@ -50,6 +50,7 @@ docker stats sv-agent --no-stream
 | 2024-03-21 | `cmake ...` | `test_logger.cpp` 컴파일 오류 수정 |
 | 2024-03-21 | `ctest ...` | 단위 테스트 통과 (Logger 3/3) |
 | 2024-03-21 | `ctest ...` | MemoryPool 단계별 재구현 및 단위 테스트 시작 (1단계 성공) |
+| 2024-03-22 | `docker compose up --build && ./test_epoll_scale.sh 3` | Custom Wire Protocol HELLO/HEARTBEAT/STATE/ACK 교환 및 CRC 검증 확인 |
 
 ## 6. 단위 테스트 결과
 

@@ -7,8 +7,9 @@
 ## 현재 구현 상태
 
 - Controller/Agent 모두 단일 `epoll` 이벤트 루프 기반 비차단 TCP 파이프라인으로 구동된다.
-- Agent는 비차단 `connect` 후 500ms 주기로 `"hello from agent"` 메시지를 송신하고, Controller는 `"tcp connection ok"`로 응답한다.
-- `test_epoll_scale.sh`는 기존 컨테이너 정리 → 빌드 → Controller 1 vs Agent N 기동 → 로그 스트리밍까지 자동화한다.
+- `sv::TcpProtocol`을 사용해 HELLO/HEARTBEAT/STATE/ACK 프레임을 주고받고, CRC32와 시퀀스 검증이 적용된다.
+- Agent는 1초 HEARTBEAT, 3초 STATE 주기를 유지하며 Controller는 각 메시지에 ACK으로 응답한다.
+- `test_epoll_scale.sh`는 기존 컨테이너 정리 → 빌드 → Controller 1 vs Agent N 기동 → Frame 로그 스트리밍까지 자동화한다.
 
 ## 의존성 (Ubuntu 22.04)
 
@@ -27,7 +28,7 @@ sudo apt-get install -y \
 | 패키지 | 최소 버전 | 용도 |
 |--------|-----------|------|
 | `cmake` | 3.14 | 프로젝트 빌드 및 gtest FetchContent |
-| `nlohmann-json3-dev` | 3.10 | JSON 처리 준비 (향후 Wire Protocol 통합용) |
+| `nlohmann-json3-dev` | 3.10 | JSON 처리 준비 (향후 Custom Wire Protocol 통합용) |
 | `docker` / `docker-compose` | 20.10 / 2.0 | Controller/Agent 컨테이너 실행 |
 | `valgrind` | - | 런타임 디버깅/검증 도구 |
 
@@ -103,7 +104,7 @@ docker compose -f docker/docker-compose.yml logs -f
 ## 다음 목표 (요구사항)
 
 ### 네트워킹 & 프로토콜
-1. Wire Protocol encode/decode를 Controller/Agent 이벤트 루프에 통합하고 HELLO/HEARTBEAT/STATE/CMD/ACK/NACK 흐름 구현.
+1. Custom Wire Protocol encode/decode를 Controller/Agent 이벤트 루프에 통합하고 HELLO/HEARTBEAT/STATE/CMD/ACK/NACK 흐름 구현.
 2. HEARTBEAT(1s)·STATE(3s) 타이머, Controller 헬스체크(3s 타임아웃) + 자동 재연결/재시도/백오프 로직 추가.
 3. 브로드캐스트 명령(`CMD_SET_MODE`)과 부분 실패 보상(재시도/로그) 처리, CRC32 등 메시지 무결성 검증.
 
