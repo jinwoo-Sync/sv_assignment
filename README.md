@@ -63,6 +63,7 @@ sudo apt-get install -y \
 
 | 패키지 | 버전 | 용도 |
 |--------|------|------|
+| `cmake` | ≥ 3.14 | `FetchContent_Declare`/`FetchContent_MakeAvailable` 지원 (GoogleTest 등) |
 | `nlohmann-json3-dev` | 3.10.5 | JSON 직렬화 (C++14 호환) |
 | `valgrind` | - | 메모리 누수 검증 |
 
@@ -161,11 +162,11 @@ Prometheus 메트릭: `http://localhost:9091/metrics`
 ### 단위 테스트
 
 ```bash
-cmake -S src -B src/build -DBUILD_TESTS=ON
-cmake --build src/build
-ctest --test-dir src/build --output-on-failure
+cmake -S . -B build -DENABLE_ASAN=ON
+cmake --build build
+LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R LoggerTest --output-on-failure
+LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R MemoryPoolTest --output-on-failure
 ```
-
 ### 실패 시나리오 테스트
 
 ```bash

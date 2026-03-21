@@ -77,6 +77,38 @@ docker compose logs -f controller \
 
 ## 5. 빌드/테스트 이슈 로그
 
-| 시점 | 명령 | 증상 | 원인 / 조치 |
-|------|------|------|--------------|
-| 2024-03-21 | `cmake --build build -DENABLE_ASAN=ON` | `tests/unit/test_logger.cpp` 컴파일 실패 (`auto*` 추론 불가) | `LoggerFactory::instance().get()` 이 `std::shared_ptr<ILogger>` 를 반환하는데 테스트/매크로가 `auto*` 로 받으면서 타입 불일치 발생. `auto logger = ...;` 후 `logger.get()` 사용 or 매크로 내부에서 `.get()` 호출하도록 수정 예정. |
+| 시점 | 명령 | 내용 |
+|------|------|------|
+| 2024-03-21 | `cmake --build build -DENABLE_ASAN=ON` | `test_logger.cpp` 컴파일 오류 수정 (`auto*` 이슈) |
+| 2024-03-21 | `ctest --test-dir build` | `MemoryPool` ASan bad-free 오류 수정 |
+| 2024-03-21 | `ctest ... -R LoggerTest/MemoryPoolTest` | 단위 테스트 통과 (Logger 3/3, MemoryPool 4/4) |
+
+---
+
+## 6. Logger 단위 테스트 결과
+
+로깅 모듈의 안정성과 정확성을 검증하기 위해 **Google Test (gtest)** 기반의 단위 테스트를 수행하였습니다.
+
+### 6.1 싱글톤 검증 (Singleton Validation) [DONE]
+- **테스트 내용**: `LoggerFactory::instance()`를 통해 생성된 로거 객체가 프로그램 전체에서 유일하게 유지되는지, 그리고 `init()` 호출 후 `get()`을 통해 정상적으로 객체를 획득할 수 있는지 검증.
+- **검증 항목**: `EXPECT_NE(logger, nullptr)`
+
+
+### 6.2 로그 레벨 검증 (Log Level Validation) [DONE]
+- **테스트 내용**: 초기화 시 설정한 로그 레벨(예: `LogLevel::WARN`)이 로거 객체에 정확히 반영되는지 확인.
+- **검증 항목**: `EXPECT_EQ(logger->getLevel(), sv::LogLevel::WARN)`
+
+
+### 6.3 로그 클래스 안전성 검증 (Log Class Safety Validation) [DONE]
+- **테스트 내용**: `LOG_DEBUG`, `LOG_INFO`, `LOG_WARN`, `LOG_ERROR` 매크로를 연속적으로 호출했을 때, 내부 버퍼 처리나 출력 과정에서 런타임 오류(Crash)가 발생하지 않는지 검증.
+- **검증 항목**: `EXPECT_NO_FATAL_FAILURE(...)`
+
+#### 6.1~6.3 gTest 결과
+- **결과**:
+
+![LoggerTest 결과](스크린샷/logger_gtest결과.png)
+
+---
+
+## 7. MemoryPool 성능 테스트 결과 [TODO]
+(6번 이후 바로 진행 예정)
