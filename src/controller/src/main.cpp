@@ -1,60 +1,91 @@
 #include <iostream>
 #include <string>
-#include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <sys/epoll.h>
 #include <cstring>
+#include "socket_utils.h"
+
+#define MAX_EVENTS 100
+#define PORT 9090
 
 int main() {
-    int server_fd;
-    struct sockaddr_in address;
-    int opt = 1;
-    int addrlen = sizeof(address);
-
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+    // 1. 소켓 생성 및 에러 체크
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
         perror("socket failed");
-        exit(EXIT_FAILURE);
+        return 1;
     }
 
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt failed");
     }
-
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(9090);
-
+    
+    struct sockaddr_in address = {AF_INET, htons(PORT), INADDR_ANY};
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
-        exit(EXIT_FAILURE);
+        return 1;
     }
 
-    if (listen(server_fd, 3) < 0) {
-        perror("listen");
-        exit(EXIT_FAILURE);
+    if (listen(server_fd, 50) < 0) {
+        perror("listen failed");
+        return 1;
     }
 
-    std::cout << "Controller listening on port 9090..." << std::endl;
+    if (!sv::core::set_nonblocking(server_fd)) {
+        perror("set_nonblocking failed");
+    }
+
+    // 2. epoll 생성 및 등록
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd < 0) {
+        perror("epoll_create1 failed");
+        return 1;
+    }
+
+    struct epoll_event ev = {EPOLLIN, {.fd = server_fd}}, events[MAX_EVENTS];
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev) < 0) {
+        perror("epoll_ctl failed");
+        return 1;
+    }
+
+    std::cout << "Controller (Stable Bare minimum) started on port " << PORT << std::endl;
 
     while (true) {
-        int new_socket;
-        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-            perror("accept");
-            continue;
+        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        if (nfds < 0) {
+            perror("epoll_wait failed");
+            break;
         }
 
-        char buffer[1024] = {0};
-        read(new_socket, buffer, 1024);
-        std::cout << "Received from agent: " << buffer << std::endl;
+        for (int i = 0; i < nfds; ++i) {
+            if (events[i].data.fd == server_fd) {
+                int client_fd = accept(server_fd, NULL, NULL);
+                if (client_fd < 0) continue;
 
-        const char* hello = "tcp connection ok";
-        send(new_socket, hello, strlen(hello), 0);
-        std::cout << "Response sent: " << hello << std::endl;
-
-        close(new_socket);
+                sv::core::set_nonblocking(client_fd);
+                struct epoll_event client_ev = {EPOLLIN | EPOLLET, {.fd = client_fd}};
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_ev) < 0) {
+                    perror("epoll_ctl client failed");
+                    close(client_fd);
+                    continue;
+                }
+                std::cout << "New agent connected (fd: " << client_fd << ")" << std::endl;
+            } else {
+                char buffer[1024] = {0};
+                int fd = events[i].data.fd;
+                ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
+                if (bytes > 0) {
+                    std::cout << "Received from fd " << fd << ": " << buffer << std::endl;
+                    send(fd, "tcp connection ok", 17, 0);
+                } else {
+                    std::cout << "Agent disconnected (fd: " << fd << ")" << std::endl;
+                    close(fd);
+                }
+            }
+        }
     }
-
     return 0;
 }

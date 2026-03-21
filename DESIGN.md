@@ -34,9 +34,39 @@ Length-Prefixed Binary + JSON payload.
 | NACK | 0x09 | 양방향 |
 | ERROR | 0x0A | 양방향 |
 
-## 3. 핵심 인터페이스
+## 3. 핵심 인터페이스 및 아키텍처
 
-공통 인터페이스는 `src/libs/core/include/core/` 에 정의한다.
+### 3.1 비동기 네트워킹 아키텍처 (epoll)
+
+`요구사항.pdf`의 **"Controller는 동시에 50개 이상의 agent와 연결(비차단 I/O)"** 항목을 충족하기 위해 `epoll` 기반의 비동기 I/O 아키텍처를 채택함.
+
+#### 설계 원칙:
+- **Single-threaded Event Loop**: 하나의 스레드(또는 제한된 수의 스레드)에서 `epoll_wait`를 통해 수천 개의 소켓 이벤트를 동시에 감시함.
+- **Non-blocking I/O**: 모든 소켓은 `O_NONBLOCK` 모드로 동작하며, `accept`, `recv`, `send` 호출 시 CPU가 대기하지 않고 즉시 반환됨.
+- **Edge-Triggered (ET)**: 이벤트가 발생한 시점에만 알림을 받아 시스템 호출 횟수를 최소화함.
+
+
+#### Agent-Controller 비동기 상호작용 구조 (1:N):
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant C as "Controller (Single)"
+
+    Note over Agent, C: 1. 비동기 연결 (Non-blocking Connect)
+    Agent->>C: connect() 시도 (멈추지 않고 자기 일 계속함)
+    C->>C: epoll에서 감지 -> accept()
+    C-->>Agent: 연결 완료 알림
+
+    Note over Agent, C: 2. 비동기 데이터 송수신 (50+ 동시 수용)
+    Agent->>C: 주기적으로 데이터 전송
+    C->>C: epoll에서 '데이터 도착' 감지 -> recv()
+    C-->>Agent: "tcp connection ok" 응답
+
+```
+
+
+#### 주요 인터페이스 정의:
 
 ```cpp
 // Frame — 통신 단위
@@ -136,8 +166,8 @@ graph TD
     *   **주인 표시하기**: `std::move`를 사용하여 데이터를 넘겨줌으로써 "누가 데이터를 가지고 있는지" 코드에서 명확히 보이게 함 (구현 예정).
 
 *   **앞으로 할 일**:
-    *   메모리 풀의 실제 사용량(Hit/Miss)을 나중에 그래프로 확인할 수 있게 연결할 예정.
-    *   통신 모듈이 완성되면 데이터가 버퍼를 타고 흐르는 과정을 그림으로 정리 예정.
+    *   가변 길이지만, 예상되는 최대 페이로드 크기(예: 64KB)를 기준으로 버퍼를 미리 풀링하여 관리하려 했지만, 전체적인 구현이 우선순위라고 생각되어 일단 stop.
+    메모리 풀에서 빌려온 버퍼에 직접 recv()를 받고, 이를 그대로 로직에 넘겨줌으로써 tcp socek callback에서 데이터를 받아낼때마다 new , delete하는 과정을 차단 함으로서 zero copy가 될 수 있을 것으로 예상.
 
 ### 5.2 안전하게 사용하기 (단계별 진행 중)
 
@@ -152,14 +182,16 @@ graph TD
 
 ## 6. 주요 동작 흐름
 
-### 6.0 기초 통신 확인 [DONE]
-현재 구현된 가장 기본적인 통신 구조 / 연결을 먼저 시키고 모듈과 기능을 붙이는 작업 진행 예정.
+### 6.0 기초 통신 확인 (epoll 비동기 I/O 버전) [DONE]
+현재 `epoll`을 이용한 비차단(Non-blocking) 통신 구조가 확립되었으며, 1:N 연결 확장이 가능한 상태임.
 
-1. **대기**: **Controller**가 9090 포트를 열고 연결을 기다림.
-2. **노크**: **Agent**가 `controller:9090` 주소로 TCP 연결을 시도.
-3. **인사**: 연결 성공 시 **Agent**가 `"hello from agent"` 메시지를 전송.
-4. **응답**: **Controller**는 메시지 수신 후 `"tcp connection ok"`라고 Respone.
-5. **확인**: 양측 로그에 성공 메시지가 기록되면 기초 통신 환경 구축이 완료된 것.
+1. **대기 (Listen)**: **Controller**가 `epoll_create`로 생성된 관심 목록에 서버 소켓을 등록하고, `epoll_wait`를 통해 신규 연결(`EPOLLIN`)을 비동기로 기다림.
+2. **연결시도 (Non-blocking Connect)**: **Agent**는 소켓을 비차단 모드로 설정 후 연결을 시도. `EINPROGRESS` 상태에서도 멈추지 않고 `epoll`을 통해 연결 완료(`EPOLLOUT`)를 감지함.
+3. **데이터 전송 (Async Send)**: 연결이 확정되면 **Agent**는 `send` 호출을 통해 `"hello from agent"` 메시지를 전송.
+4. **이벤트 감지 및 응답 (Event-driven)**:
+    - **Controller**: `epoll_wait`가 데이터 도착을 알리면 즉시 `recv`하여 메시지를 읽음.
+    - **Controller**: 읽기 완료 후 다시 `epoll`을 통해 쓰기 가능 상태를 확인하거나 즉시 응답 메시지(`"tcp connection ok"`)를 전송.
+5. **확인**: 양측의 `epoll` 루프가 끊김 없이 이벤트를 처리하고 로그에 성공 메시지가 기록되면 비동기 기초 통신 환경 구축 완료.
 
 ### 6.1 정상 흐름
 

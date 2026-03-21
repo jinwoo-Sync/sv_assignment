@@ -5,7 +5,7 @@
 C++14 기반 분산 장치 시뮬레이션 시스템.
 Agent N개가 HEARTBEAT/STATE를 보고하면 Controller가 제어 명령을 발행한다.
 
-- **현재 진행**: `sv_logger` 및 `sv_core` (MemoryPool) 구현 및 단위 테스트 완료.
+- **현재 진행**: `epoll` 기반 비동기 네트워킹 구축 및 1:50 부하 테스트 진행 중.
 
 ---
 
@@ -25,8 +25,10 @@ sudo apt-get install -y \
 
 | 패키지 | 버전 | 용도 |
 |--------|------|------|
-| `cmake` | ≥ 3.14 | `FetchContent_Declare`/`FetchContent_MakeAvailable` 지원 (GoogleTest 등) |
-| `nlohmann-json3-dev` | 3.10.5 | JSON 직렬화 (C++14 호환) |
+| `cmake` | ≥ 3.14 | `FetchContent`를 통한 외부 라이브러리(GTest 등) 관리 |
+| `nlohmann-json3-dev` | 3.10.5 | JSON 데이터 직렬화 및 파싱 |
+| `docker` | ≥ 20.10 | 컨테이너 기반 격리 환경 구축 |
+| `docker-compose` | ≥ 2.0 | 다중 컨테이너(Agent 50대 등) 오케스트레이션..? 음.. |
 | `valgrind` | - | 메모리 누수 검증 |
 
 ---
@@ -51,7 +53,7 @@ sv_assignment/
 ## 빌드
 
 ```bash
-cd sv_assignment/src
+cd src
 
 # Debug (기본)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -62,10 +64,33 @@ cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release -- -j$(nproc)
 ```
 
+
+## 실행 (Docker Compose)
+
+요구사항 프로세스 배치 부분의 요구사항을 수행하고자 도커 컴포즈로 다중 에이전트를 세팅하는 부분 추가.
+
+```bash
+# 1. 기본 실행 (Controller 1대, Agent 1대)
+docker compose up --build
+
+# 2. 대규모 부하 테스트 (Controller 1대, Agent 50대)
+docker compose up --build --scale agent=50 -d
+```
+
+---
+
 ## 테스트
 
-### 단위 테스트
+### 1. 비동기 부하 테스트 (1:N Scale Test)
+단일 컨트롤러가 50개의 에이전트로를 운용시에 cpu 부하 성능 검증
+```bash
+# Agent 50대를 띄워 테스트 (종료 시 Ctrl+C로 자동 정리)
+chmod +x test_epoll_scale.sh
+./test_epoll_scale.sh 50
+```
 
+### 2. 단위 테스트 (Local Build)
+핵심 라이브러리(`sv_logger`, `sv_core`)의 로직을 검증.
 ```bash
 cmake -S . -B build -DENABLE_ASAN=ON
 cmake --build build
@@ -73,35 +98,17 @@ LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R LoggerTest --output-on-fai
 LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R MemoryPoolTest --output-on-failure
 ```
 
-### 실패 시나리오 테스트
-
+### 3. 리소스 모니터링
+50대 기동 시 컨트롤러의 실제 CPU/메모리 점유율을 확인.
 ```bash
-# 네트워크 지연 주입 → 타임아웃 로직 검증
-ctest --test-dir build -R test_timeout --output-on-failure
-
-# 잘못된 페이로드 → NACK 처리 검증
-ctest --test-dir build -R test_bad_payload --output-on-failure
-
-# 중복 메시지 → 시퀀스 번호 필터링 검증
-ctest --test-dir build -R test_duplicate_msg --output-on-failure
+docker stats
 ```
-
-### ASan + UBSan
-
-```bash
-bash scripts/asan_run.sh
-```
-
----
-
-## 실행 (구현 예정)
-(Controller 및 Agent 연동 로직 구현 후 작성)
 
 ---
 
 ## 문서 목록
+- [COMMON.md](COMMON.md): 공통 코딩 규칙 및 인터페이스 정의
+- [DESIGN.md](DESIGN.md): **비동기 네트워킹(epoll) 아키텍처** 및 1:N 상호작용 설계 추가
+- [PERF.md](PERF.md): 성능 측정 시나리오 및 결과 기록 양식
 
-- [COMMON.md](COMMON.md): 공통 규칙 및 인터페이스
-- [DESIGN.md](DESIGN.md): 시스템 아키텍처 및 설계
-- [PERF.md](PERF.md): 성능 목표 및 테스트 결과
 - [OPERATIONS.md](OPERATIONS.md): 로그 및 운영 가이드

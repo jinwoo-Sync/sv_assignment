@@ -12,7 +12,6 @@ services:
       - sv_network
 
   agent:
-    container_name: sv-agent
     build:
       context: ../
       dockerfile: docker/agent.Dockerfile
