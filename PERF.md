@@ -1,6 +1,6 @@
 # PERF — 성능 측정 및 검증
 
-`epoll` 기반 Controller–Agent 구조가 요구 성능을 만족하는지 추적한다. 모든 수치는 실측값으로만 채우며, 추가 계획은 TODO 섹션에서 관리한다.
+`epoll` 기반 Controller–Agent 구조의 CPU/메모리 사용량을 추적한다. 모든 수치는 실측값으로만 채우며, 추가 작업은 TODO 섹션에서 관리한다.
 
 ## 1. 성능 목표
 
@@ -33,7 +33,7 @@ docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsag
 docker stats sv-agent --no-stream
 ```
 
-필요 시 `scripts/perf_bench.sh`로 단일 측정을 자동화한다.
+필요 시 `scripts/perf_bench.sh`로 단일 측정을 자동화할 수 있음.
 
 ## 4. 측정 기록
 

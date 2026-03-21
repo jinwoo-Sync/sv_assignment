@@ -1,46 +1,45 @@
-# OPERATIONS — 로그·메트릭·운영
+# OPERATIONS — 로그·운영 가이드
 
-## 1. 구조화 로그 (구현 완료)
+## 1. 로그 확인
 
-모든 프로세스는 **stdout** 에 **JSON Lines** 형식으로 출력한다.
+- Controller/Agent 모두 `stdout`에 단순 텍스트 로그를 남김 (`std::cout` 기반).
+- 새 연결/수신/종료 이벤트가 발생할 때마다 `"New agent connected"`, `"Received from fd ..."`, `"Agent disconnected"` 등의 메시지가 출력됨.
+- 확인 방법:
+  ```bash
+  docker compose -f docker/docker-compose.yml logs -f controller
+  docker compose -f docker/docker-compose.yml logs -f agent
+  ```
 
-```json
-{"ts":"2024-01-15T10:23:45.123Z","lvl":"INFO","comp":"Controller","msg":"Agent registered","fields":{"agent_id":"agent-001"}}
-```
-
-- **로그 레벨**: `DEBUG`, `INFO`, `WARN`, `ERROR`
-- **사용법**: `LoggerFactory` 및 `LOG_XXXX` 매크로 사용.
-
-## 2. 메트릭 수집
-(Prometheus 엔드포인트 `:9091/metrics` 구현 예정)
-
-## 3. 주요 알람 포인트
-
-| 조건 | 심각도 |
-|------|--------|
-| `sv_agent_alive == 0` for > 30s | CRITICAL |
-| command timeout rate > 0.1/min | HIGH |
-| agent temperature > 75°C | HIGH |
-| 재연결 시도 > 3/min | MEDIUM |
-
-## 4. 헬스체크
+## 2. 런타임 점검
 
 ```bash
-# 서비스 상태
-docker compose ps
+# 컨테이너 상태
+docker compose -f docker/docker-compose.yml ps
 
-# Agent 생존 확인
-curl -s http://localhost:9091/metrics | grep sv_agent_alive
+# 특정 컨테이너 로그
+docker logs sv-controller
+docker logs sv-agent
 ```
 
-## 5. 운영 명령
+컨테이너 재기동은 `run_step0.sh` 또는 `docker compose down && docker compose up --build`로 수행함.
+
+## 3. 리소스 모니터링
+
+Prometheus `/metrics` 엔드포인트는 아직 제공하지 않으므로 Docker 통계를 직접 확인함.
 
 ```bash
-# Agent 1개 재시작
-docker compose restart agent-1
+docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsage}}"
+docker stats sv-agent --no-stream
+```
 
-# 전체 스케일아웃
-docker compose up --scale agent=10 -d
+## 4. 헬스체크/트러블슈팅
 
-# Config 핫-리로드 확인
-docker compose logs -f controller | jq 'select(.msg == "Config reloaded")'
+- Agent 연결 수 확인: 컨트롤러 로그에서 `"New agent connected"` 메시지 수로 파악함.
+- TCP 종료 처리: 문제가 되는 FD를 로그에서 찾고 컨트롤러 코드에서 `close(fd)` 호출함.
+- DNS 실패 시: Agent 로그에 "DNS lookup failed" 반복 시 Compose 네트워크 상태 확인함.
+
+## 5. TODO (운영 영역)
+
+- Prometheus 엔드포인트 및 지표(`sv_agent_alive`, `sv_controller_cmd_latency` 등) 노출.
+- Threshold 기반 알람 정책 정의 후 Alertmanager 연동.
+- Config 핫-리로드 이벤트 로그(`"Config reloaded"`) 및 검증 절차 추가.

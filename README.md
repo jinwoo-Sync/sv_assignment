@@ -2,15 +2,13 @@
 
 ## 개요
 
-`sv_assignment`는 C++14와 `epoll` 기반으로 구축된 Controller–Agent 분산 장치 관리 시스템이다. 단일 Controller가 다수 Agent의 HEARTBEAT/STATE를 수신하고 필요 시 명령을 내려 장치 플릿을 조율한다. 현재 1:50 스케일까지 검증된 비차단 I/O 경로와 공용 라이브러리가 준비되어 있다.
+`sv_assignment`는 C++14와 `epoll` 기반으로 구축된 Controller–Agent 분산 장치 관리 시스템이다. 단일 Controller가 다수 Agent의 연결을 수용하고, Agent는 500ms마다 간단한 메시지를 주고받는 구조를 확인했다. 현재는 1:50 스케일까지 검증된 비차단 I/O 파이프라인에 집중하고 있다.
 
 ## 현재 구현 상태
 
-- Controller/Agent 모두 단일 `epoll` 이벤트 루프 기반 비차단 TCP 파이프라인.
-- `sv_core`: `MemoryPool`, `TcpProtocol`, `StreamBuffer`, `socket_utils`.
-- `sv_logger`: JSON Lines 출력(`LoggerFactory`, `LOG_xxx` 매크로).
-- 단위 테스트: `LoggerTest` 3건, `MemoryPoolTest` 3건.
-- `test_epoll_scale.sh`: 기존 컨테이너 정리 → 빌드 → Controller 1 vs Agent N 기동 → 로그 스트리밍 자동화.
+- Controller/Agent 모두 단일 `epoll` 이벤트 루프 기반 비차단 TCP 파이프라인으로 구동된다.
+- Agent는 비차단 `connect` 후 500ms 주기로 `"hello from agent"` 메시지를 송신하고, Controller는 `"tcp connection ok"`로 응답한다.
+- `test_epoll_scale.sh`는 기존 컨테이너 정리 → 빌드 → Controller 1 vs Agent N 기동 → 로그 스트리밍까지 자동화한다.
 
 ## 의존성 (Ubuntu 22.04)
 
@@ -29,9 +27,9 @@ sudo apt-get install -y \
 | 패키지 | 최소 버전 | 용도 |
 |--------|-----------|------|
 | `cmake` | 3.14 | 프로젝트 빌드 및 gtest FetchContent |
-| `nlohmann-json3-dev` | 3.10 | Protocol payload 직렬화 |
+| `nlohmann-json3-dev` | 3.10 | JSON 처리 준비 (향후 Wire Protocol 통합용) |
 | `docker` / `docker-compose` | 20.10 / 2.0 | Controller/Agent 컨테이너 실행 |
-| `valgrind` | - | MemoryPool 등 메모리 검증 |
+| `valgrind` | - | 런타임 디버깅/검증 도구 |
 
 ## 프로젝트 구조
 
@@ -41,8 +39,8 @@ sv_assignment/
 │   ├── controller/        # epoll 서버 (9090)
 │   ├── agent/             # 비동기 클라이언트
 │   └── libs/
-│       ├── core/          # MemoryPool, TcpProtocol, socket_utils
-│       └── logger/        # JSON Lines logger
+│       ├── core/          # 공용 라이브러리 원본 (향후 통합 예정)
+│       └── logger/        # 로깅 라이브러리 원본 (향후 통합 예정)
 ├── config/                # controller/agent 설정
 ├── tests/                 # unit/integration (gtest)
 ├── docker/                # Dockerfile, compose
@@ -72,11 +70,12 @@ cmake --build build-release -- -j$(nproc)
   LSAN_OPTIONS=detect_leaks=0 ctest --test-dir build -R MemoryPoolTest --output-on-failure
   ```
 
-- **비동기 부하 테스트 (1:N)**
-  ```bash
-  chmod +x test_epoll_scale.sh
-  ./test_epoll_scale.sh 50    # Ctrl+C로 종료 시 자동 정리
-  ```
+`test_epoll_scale.sh`로 Controller 1대와 Agent N대를 동시에 띄워 통신을 확인한다.
+
+```bash
+chmod +x test_epoll_scale.sh
+./test_epoll_scale.sh 50    # Ctrl+C로 종료 시 자동 정리
+```
 
 ## 실행 (Docker Compose)
 
@@ -97,16 +96,28 @@ docker compose -f docker/docker-compose.yml logs -f
 
 ## 참고 문서
 
-- [DESIGN.md](DESIGN.md): epoll 아키텍처, 소유권/MemoryPool 모델
-- [OPERATIONS.md](OPERATIONS.md): 로그·운영 가이드
-- [PERF.md](PERF.md): 성능 측정 시나리오, 빌드/테스트 로그
+- [DESIGN.md](DESIGN.md): epoll 기반 동작 구조와 TODO
+- [OPERATIONS.md](OPERATIONS.md): 컨테이너 운영 및 리소스 확인 방법
+- [PERF.md](PERF.md): 부하 테스트/측정 절차,, 빌드/테스트 로그
 
-## 다음 목표
+## 다음 목표 (요구사항)
 
-1. Wire Protocol encode/decode 구현 및 런타임 통합 (TcpProtocol 사용 대상 정의).
-2. Agent HEARTBEAT + STATE 주기 전송 (cpu/temp/load_avg 보고) 정식 구현.
-3. Controller STATE 수신 → AgentStateStore dispatch 파이프 구축.
-4. ThresholdPolicyEngine 구현으로 상태 기반 명령 결정.
-5. 설정 파일 mtime 폴링 기반 핫 리로드(`loadConfig()` 자동 호출) 완성.
+### 네트워킹 & 프로토콜
+1. Wire Protocol encode/decode를 Controller/Agent 이벤트 루프에 통합하고 HELLO/HEARTBEAT/STATE/CMD/ACK/NACK 흐름 구현.
+2. HEARTBEAT(1s)·STATE(3s) 타이머, Controller 헬스체크(3s 타임아웃) + 자동 재연결/재시도/백오프 로직 추가.
+3. 브로드캐스트 명령(`CMD_SET_MODE`)과 부분 실패 보상(재시도/로그) 처리, CRC32 등 메시지 무결성 검증.
 
-향후 항목은 `TODO` 목록과 커밋 로그에서 지속 추적한다.
+### 시스템 제어
+4. AgentStateStore와 ThresholdPolicyEngine 구현 → 평균 load/온도 임계 초과 시 그룹 모드 변경.
+5. Policy/threshold config JSON 핫-리로드(mtime 감시 → `loadConfig()`), 명령 결과 ACK/NACK 추적.
+
+### 메모리/설계 품질
+6. `sv_core` MemoryPool/StreamBuffer를 네트워크 경로에 실제 적용하고 소유권/이동语 의미를 문서화, ASan/Valgrind 스크립트 추가.
+7. 인터페이스(`IAgentConnection`, `IProtocol`, `ICommandBus`, `IStateStore`, `IPolicyEngine`) 기반 구조 재정비 및 DI 적용.
+
+### 테스트/운영/성능
+8. 단위 테스트(프로토콜 codec, 정책 엔진, 타임아웃)와 통합 테스트(Controller↔Agent 정상/실패 시나리오) 추가, fault injection 스크립트 준비.
+9. JSON 구조화 로그와 Prometheus 텍스트 메트릭(`sv_agent_alive`, RTT 등) 노출, graceful shutdown 처리.
+10. 성능 측정 자동화(라운드트립 P50/P95, CPU/RSS) 및 PERF.md에 수치 기록, TODO 업데이트.
+
+향후 진행 상황은 커밋 메시지와 각 문서의 TODO 절에서 추적한다.
