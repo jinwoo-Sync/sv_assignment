@@ -1,0 +1,4 @@
+{
+  "throttle_threshold": 70.0,
+  "recover_threshold": 40.0
+}
