@@ -24,14 +24,30 @@ std::string extract_str(const std::string& json, const std::string& key)
     return json.substr(start, end - start);
 }
 
+double extract_num(const std::string& json, const std::string& key)
+{
+    std::string search = "\"" + key + "\":";
+    auto        pos    = json.find(search);
+    if (pos == std::string::npos)
+        return 0.0;
+    auto start = pos + search.size();
+    auto end   = json.find_first_of(",}", start);
+    if (end == std::string::npos)
+        return 0.0;
+    try { return std::stod(json.substr(start, end - start)); }
+    catch (...) { return 0.0; }
+}
+
 // ── ControllerFrameHandler ───────────────────────────────────────
 // Agent → Controller 방향 수신 콜백. IFrameHandler::onFrame이 SvStreamBuffer에 직접 등록됨.
 // Frame이 완성될 때마다 onXxx()가 바로 호출.
 class ControllerFrameHandler : public sv::IFrameHandler {
 public:
     ControllerFrameHandler(int fd, sv::TcpProtocol& protocol,
-                           std::string& agentId, std::string& group)
+                           std::string& agentId, std::string& group,
+                           double& cpu_percent, double& temperature, double& mem_percent)
         : m_protocol(protocol), m_agentId(agentId), m_group(group)
+        , m_cpu_percent(cpu_percent), m_temperature(temperature), m_mem_percent(mem_percent)
     {
         m_fd = fd;
     }
@@ -64,10 +80,17 @@ protected:
 
     void onState(const sv::Frame& frame) override {
         const std::string payload(frame.payload.begin(), frame.payload.end());
+
+        m_cpu_percent  = extract_num(payload, "cpu_percent");
+        m_temperature  = extract_num(payload, "temperature");
+        m_mem_percent  = extract_num(payload, "mem_percent");
+
         LOG_INFO("Controller", "STATE",
-                 ("{\"fd\":" + std::to_string(m_fd) +
-                  ",\"seq\":" + std::to_string(frame.seq) +
-                  ",\"payload\":\"" + payload + "\"}").c_str());
+                 ("{\"fd\":"             + std::to_string(m_fd) +
+                  ",\"seq\":"            + std::to_string(frame.seq) +
+                  ",\"cpu_percent\":"    + std::to_string(m_cpu_percent) +
+                  ",\"temperature\":"    + std::to_string(m_temperature) +
+                  ",\"mem_percent\":"    + std::to_string(m_mem_percent) + "}").c_str());
         sv::send_frame(m_fd, m_protocol, sv::MessageType::ACK,
                        frame.seq, "{\"state\":\"ok\"}");
     }
@@ -90,6 +113,9 @@ private:
     sv::TcpProtocol& m_protocol;
     std::string&     m_agentId;
     std::string&     m_group;
+    double&          m_cpu_percent;
+    double&          m_temperature;
+    double&          m_mem_percent;
 };
 
 // ── AgentStream ──────────────────────────────────────────────────
@@ -105,9 +131,26 @@ struct AgentStream {
     sv::SvStreamBuffer     stream;
 
     AgentStream(int fd, sv::TcpProtocol& protocol)
-        : handler(fd, protocol, agentId, group)
+        : handler(fd, protocol, agentId, group, cpu_percent, temperature, mem_percent)
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
+
+double calcGroupAvgLoad(const std::string& group,
+                        const std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap)
+{
+    double sum   = 0.0;
+    int    count = 0;
+    for (const auto& agentEntry : agentStreamMap)
+    {
+        if (agentEntry.second->group != group)
+            continue;
+        sum += agentEntry.second->cpu_percent
+             + agentEntry.second->temperature
+             + agentEntry.second->mem_percent;
+        ++count;
+    }
+    return (count > 0) ? (sum / (3.0 * count)) : 0.0;
+}
 
 void broadcast_set_mode(const std::string& group, const std::string& mode,
                                std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
@@ -184,7 +227,7 @@ int main() {
     LOG_INFO("Controller", "Started",
              ("{\"port\":" + std::to_string(PORT) + "}").c_str());
 
-    sv::TcpProtocol protocol;
+    sv::TcpProtocol tcpProtocolCodec;
 
     // fd → AgentStream (ControllerFrameHandler + SvStreamBuffer 묶음)
     std::unordered_map<int, std::unique_ptr<AgentStream>> agentStreamMap;
@@ -220,7 +263,7 @@ int main() {
                 }
 
                 // 연결당 AgentStream 1개 생성 (ControllerFrameHandler + SvStreamBuffer)
-                agentStreamMap[client_fd] = std::make_unique<AgentStream>(client_fd, protocol);
+                agentStreamMap[client_fd] = std::make_unique<AgentStream>(client_fd, tcpProtocolCodec);
 
                 LOG_INFO("Controller", "Agent connected",
                          ("{\"fd\":" + std::to_string(client_fd) + "}").c_str());
