@@ -100,6 +100,83 @@ epoll_wait()
                    └─ ERROR        → onError()
 ```
 
+### Agent 연결 ~ HELLO 처리 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant main
+    participant epoll as epoll(kernel)
+    participant AgentStream
+    participant SvStreamBuffer
+    participant ControllerFrameHandler
+
+    Agent->>epoll: connect()
+    epoll->>main: EPOLLIN on server_fd
+    main->>main: accept() → client_fd=5
+
+    main->>AgentStream: make_unique<AgentStream>(fd=5, protocol)
+    Note over AgentStream: agentId="", group="" 초기화
+    AgentStream->>ControllerFrameHandler: handler(fd=5, protocol, agentId, group)
+    AgentStream->>SvStreamBuffer: stream(protocol, IFrameHandler::onFrame, &handler)
+    Note over SvStreamBuffer: m_pUser = &handler 저장
+    main->>main: streams[5] = AgentStream 저장
+
+    Agent->>epoll: HELLO 전송
+    epoll->>main: EPOLLIN on fd=5
+    main->>SvStreamBuffer: appendReceivedBytes(recv_buffer)
+    Note over SvStreamBuffer: Frame 재조립 완성
+    SvStreamBuffer->>ControllerFrameHandler: m_onFrame(frame, m_pUser)
+    ControllerFrameHandler->>ControllerFrameHandler: dispatch() → onHello()
+    Note over ControllerFrameHandler: m_agentId = extract_str(payload, "agent_id")<br/>m_group = extract_str(payload, "group")
+    Note over AgentStream: agentId, group 레퍼런스로 반영
+    ControllerFrameHandler->>Agent: send_frame(ACK)
+```
+
+### 라이브러리 ↔ 구현부 콜백 연결 구조
+
+```
+[1구간 — AgentStream(구현부) → SvStreamBuffer(라이브러리) 등록]
+
+AgentStream 생성자:
+stream(protocol, IFrameHandler::onFrame, &handler)
+                        ↓                   ↓
+                   m_onFrame =          m_pUser =
+                 함수 포인터 저장        &handler 저장
+
+[2구간 — SvStreamBuffer(라이브러리) → ControllerFrameHandler(구현부) 콜백]
+
+Frame 재조립 완성 시 SvStreamBuffer 내부:
+m_onFrame(frame, m_pUser)
+    ↓
+IFrameHandler::onFrame(frame, pUser)   ← static 다리 함수
+    ↓
+(IFrameHandler*)pUser → dispatch(*frame)
+    ↓
+ControllerFrameHandler::onHello() / onHeartbeat() / ...
+```
+
+- `IFrameHandler::onFrame` 이 `static`인 이유: 함수 포인터로 등록하려면 `this`가 없어야 함
+- `void* m_pUser` 가 `this` 역할을 대신함
+
+### 의존성 역전 (요구사항 4. 객체지향 설계)
+
+> "Controller는 추상 인터페이스에 의존, 실제 구현은 주입"
+
+`SvStreamBuffer`(라이브러리)는 `ControllerFrameHandler`(구현부)를 직접 알지 못한다.
+`IFrameHandler` 인터페이스를 통해서만 의존하며, 실제 구현체는 `void*`로 주입된다.
+
+```
+의존 방향:
+SvStreamBuffer ──► IFrameHandler (인터페이스)
+                        △
+                        │ 상속
+               ControllerFrameHandler (구현체, 주입)
+```
+
+- 라이브러리가 구현부를 모르기 때문에 구현체를 자유롭게 교체 가능
+- `AgentFrameHandler`도 동일한 `IFrameHandler`를 상속해 같은 구조로 동작
+
 **새 메시지 타입 추가 시 수정 위치: 3곳**
 ```
 1. message.h     MessageType enum 값 추가
