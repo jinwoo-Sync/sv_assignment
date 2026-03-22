@@ -1,9 +1,11 @@
 # CMake build artifacts
+/build/
 build/
 build-*/
 cmake-build*/
-src/build/
-src/build-*/
+**/build/
+**/build-*/
+**/cmake-build*/
 **/CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -11,6 +13,10 @@ CTestTestfile.cmake
 Testing/
 
 # Compiled binaries and objects
+bin/
+lib/
+**/bin/
+**/lib/
 *.o
 *.obj
 *.lo
