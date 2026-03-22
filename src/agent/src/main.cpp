@@ -29,6 +29,8 @@ public:
     AgentSender(int sock, sv::TcpProtocol& protocol, const std::string& agentId)
         : m_sock(sock), m_protocol(protocol), m_agentId(agentId), m_seq(1) {}
 
+    void setMode(const std::string& mode) { m_mode = mode; }
+    
     bool sendHello() {
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::HELLO, m_seq++,
                               "{\"agent_id\":\"" + m_agentId + "\",\"group\":\"default\"}");
@@ -57,7 +59,7 @@ public:
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::STATE, current_seq,
                               "{\"agent_id\":\"" + m_agentId +
                               "\",\"seq\":"                    + std::to_string(current_seq) +
-                              ",\"mode\":\"Active\""
+                              ",\"mode\":\""                   + m_mode + "\""
                               ",\"cpu_percent\":"              + std::to_string(cpu_percent) +
                               ",\"temperature\":"              + std::to_string(temperature) +
                               ",\"mem_percent\":"              + std::to_string(mem_percent) +
@@ -69,6 +71,7 @@ private:
     sv::TcpProtocol& m_protocol;
     std::string      m_agentId;
     uint32_t         m_seq;
+    std::string      m_mode{"active"};
 };
 
 // ── AgentFrameHandler ────────────────────────────────────────────
@@ -108,6 +111,17 @@ protected:
 
     void onCmdSetMode(const sv::Frame& frame) override {
         const std::string payload(frame.payload.begin(), frame.payload.end());
+
+        const std::string search = "\"mode\":\"";
+        auto pos = payload.find(search);
+        if (pos != std::string::npos)
+        {
+            auto start = pos + search.size();
+            auto end   = payload.find('"', start);
+            if (end != std::string::npos)
+                m_sender.setMode(payload.substr(start, end - start));
+        }
+
         LOG_INFO("Agent", "CMD_SET_MODE",
                  ("{\"agent_id\":\"" + m_agentId +
                   "\",\"payload\":\""  + payload + "\"}").c_str());

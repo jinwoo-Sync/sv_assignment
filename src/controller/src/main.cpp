@@ -12,6 +12,7 @@
 #include "socket_utils.h"
 #include "stream_buffer.h"
 #include "logger_factory.h"
+#include "PolicyEngine.h"
 
 std::string extract_str(const std::string& json, const std::string& key)
 {
@@ -232,6 +233,11 @@ int main() {
     // fd → AgentStream (ControllerFrameHandler + SvStreamBuffer 묶음)
     std::unordered_map<int, std::unique_ptr<AgentStream>> agentStreamMap;
 
+    sv::PolicyEngine policyEngine;
+    policyEngine.setConfigPath("configs/policy.json");
+    policyEngine.reload();
+
+
     struct epoll_event events[MAX_EVENTS];
     while (true) {
         int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
@@ -298,6 +304,17 @@ int main() {
             if (!is_alive)
             {
                 close_connection(event_fd, epoll_fd, agentStreamMap);
+            }
+            else
+            {
+                const std::string& group = agentStreamMap[event_fd]->group;
+                if (!group.empty())
+                {
+                    double      avgLoad = calcGroupAvgLoad(group, agentStreamMap);
+                    std::string mode    = policyEngine.decide(group, avgLoad);
+                    if (!mode.empty())
+                        broadcast_set_mode(group, mode, agentStreamMap, tcpProtocolCodec);
+                }
             }
         }
     }
