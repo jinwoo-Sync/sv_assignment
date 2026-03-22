@@ -4,8 +4,8 @@ set -e
 BUILD_TYPE="Debug"
 BUILD_TESTS="ON"
 RUN_TESTS=true
-ASAN=""
-UBSAN=""
+ASAN="-DENABLE_ASAN=OFF"
+UBSAN="-DENABLE_UBSAN=OFF"
 CLEAN=false
 
 for arg in "$@"; do
