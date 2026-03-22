@@ -8,6 +8,8 @@
 [agent-N]──┘
 ```
 
+![epoll 다이어그램](asset/epoll다이어그램.png)
+
 | 컴포넌트 | 역할 |
 |---------|------|
 | controller | epoll 서버. Agent 연결 수락·관리, 정책 판단, 명령 브로드캐스트 |

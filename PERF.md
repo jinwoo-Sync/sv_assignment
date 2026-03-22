@@ -32,6 +32,9 @@ docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsag
 | 1v10 | 10 | | | |
 | 1v50 | 50 | | | Steady state 기준 |
 
+![1:10 성능 테스트](asset/1_10성능테스트.png)
+![도커 네트워크 TCP 통신 1차 검증](asset/도커_네트워크_TCP_통신_1차_검증.png)
+
 ## 5. 빌드/테스트 이력
 
 | 날짜 | 내용 |
@@ -46,6 +49,9 @@ docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsag
 |------|------|------|
 | Logger | 싱글턴, 레벨 필터링, 매크로 안정성 | PASS |
 | MemoryPool | 초기화, acquire/release, pool 고갈 | PASS |
+
+![Logger gtest 결과](asset/logger_gtest결과.png)
+![MemoryPool 단위테스트](asset/memory_pool재구현_단위테스트재시작.png)
 
 ## 7. TODO
 

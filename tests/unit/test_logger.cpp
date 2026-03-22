@@ -16,9 +16,9 @@ TEST(LoggerTest, LogLevelFilter) {
 TEST(LoggerTest, MacrosDoNotCrash) {
     sv::LoggerFactory::instance().init(sv::LogLevel::DEBUG);
     EXPECT_NO_FATAL_FAILURE({
-        LOG_DEBUG("Test", "debug message");
-        LOG_INFO("Test", "info message");
-        LOG_WARN("Test", "warn message");
-        LOG_ERROR("Test", "error message");
+        LOG_DEBUG("Test", "debug message", "{}");
+        LOG_INFO("Test", "info message", "{}");
+        LOG_WARN("Test", "warn message", "{}");
+        LOG_ERROR("Test", "error message", "{}");
     });
 }

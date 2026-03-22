@@ -6,7 +6,6 @@
 #include <cstring>
 #include <ctime>
 #include <string>
-#include <thread>
 
 #include <netdb.h>
 #include <sys/epoll.h>
@@ -49,7 +48,7 @@ public:
             return (rand() % 10001) / 100.0; // 0.00 ~ 100.00
         };
 
-        double   cpu_pc         = random_pct();
+        double   cpu_pc      = random_pct();
         double   temperature = random_pct();
         double   mem         = random_pct();
         double   cpu_avail   = std::max(0.0, 100.0 - cpu_pc);
@@ -57,12 +56,12 @@ public:
 
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::STATE, current_seq,
                               "{\"agent_id\":\"" + m_agentId +
-                              "\",\"seq\":"      + std::to_string(current_seq) +
+                              "\",\"seq\":"               + std::to_string(current_seq) +
                               ",\"mode\":\"Active\""
-                              ",\"cpu_pct\":"          + std::to_string(cpu_pc)  +
-                              ",\"temperature\":"      + std::to_string(temperature) +
-                              ",\"mem_pct\":"          + std::to_string(mem)  +
-                              ",\"cpu_available_pct\":"+ std::to_string(cpu_avail) + "}");
+                              ",\"cpu_pct\":"             + std::to_string(cpu_pc) +
+                              ",\"temperature\":"         + std::to_string(temperature) +
+                              ",\"mem_pct\":"             + std::to_string(mem) +
+                              ",\"cpu_available_pct\":"   + std::to_string(cpu_avail) + "}");
     }
 
 private:
@@ -86,7 +85,7 @@ protected:
         const std::string payload(frame.payload.begin(), frame.payload.end());
         LOG_INFO("Agent", "ACK",
                  ("{\"agent_id\":\"" + m_agentId +
-                  "\",\"seq\":"     + std::to_string(frame.seq) +
+                  "\",\"seq\":"      + std::to_string(frame.seq) +
                   ",\"payload\":\""  + payload + "\"}").c_str());
     }
 
@@ -94,7 +93,7 @@ protected:
         const std::string payload(frame.payload.begin(), frame.payload.end());
         LOG_WARN("Agent", "NACK",
                  ("{\"agent_id\":\"" + m_agentId +
-                  "\",\"seq\":"     + std::to_string(frame.seq) +
+                  "\",\"seq\":"      + std::to_string(frame.seq) +
                   ",\"payload\":\""  + payload + "\"}").c_str());
     }
 
@@ -128,9 +127,9 @@ private:
 
 // ── main ─────────────────────────────────────────────────────────
 
-int main(int argc, char const* argv[]) {
-    const char*       host    = (argc > 1) ? argv[1] : "controller";
-    const std::string agentId = make_agent_id();
+int main(int argc, char* argv[]) {
+    const char* host    = (argc > 1) ? argv[1] : "controller";
+    std::string agentId = make_agent_id();
 
     sv::LoggerFactory::instance().init(sv::LogLevel::INFO);
     srand((unsigned int)time(nullptr));
@@ -138,34 +137,44 @@ int main(int argc, char const* argv[]) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0)
     {
-        perror("socket"); return 1;
+        LOG_ERROR("Agent", "socket failed",
+                  ("{\"error\":\"" + std::string(strerror(errno)) + "\"}").c_str());
+        return 1;
     }
     sv::set_nonblocking(sock);
 
-    struct hostent* host_entry = nullptr;
-    while (!(host_entry = gethostbyname(host))) {
+    struct addrinfo hints{};
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* res = nullptr;
+    while (getaddrinfo(host, "9090", &hints, &res) != 0)
+    {
         LOG_WARN("Agent", "DNS lookup failed",
                  ("{\"target\":\"" + std::string(host) + "\"}").c_str());
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        sleep(1);
     }
 
-    struct sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(9090);
-    std::memcpy(&addr.sin_addr, host_entry->h_addr_list[0], host_entry->h_length);
-
-    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    if (connect(sock, res->ai_addr, res->ai_addrlen) < 0)
     {
         if (errno != EINPROGRESS)
         {
-            perror("connect"); return 1;
+            LOG_ERROR("Agent", "connect failed",
+                      ("{\"error\":\"" + std::string(strerror(errno)) + "\"}").c_str());
+            freeaddrinfo(res);
+            close(sock);
+            return 1;
         }
     }
+    freeaddrinfo(res);
 
     int epoll_fd = epoll_create1(0);
     if (epoll_fd < 0)
     {
-        perror("epoll_create1"); return 1;
+        LOG_ERROR("Agent", "epoll_create1 failed",
+                  ("{\"error\":\"" + std::string(strerror(errno)) + "\"}").c_str());
+        close(sock);
+        return 1;
     }
 
     struct epoll_event epoll_ev{};
@@ -176,8 +185,6 @@ int main(int argc, char const* argv[]) {
     sv::TcpProtocol   protocol;
     AgentSender       sender(sock, protocol, agentId);
     AgentFrameHandler handler(agentId, sender);
-
-    // IFrameHandler::onFrame: static 함수로 void* → AgentFrameHandler* 복원 후 dispatch.
     sv::SvStreamBuffer stream(protocol, sv::IFrameHandler::onFrame, &handler);
 
     bool connected = false;
@@ -190,10 +197,12 @@ int main(int argc, char const* argv[]) {
               "\",\"agent_id\":\"" + agentId + "\"}").c_str());
 
     struct epoll_event events[10];
-    while (true) {
+    while (true)
+    {
         int num_events = epoll_wait(epoll_fd, events, 10, 100);
 
-        for (int i = 0; i < num_events; ++i) {
+        for (int i = 0; i < num_events; ++i)
+        {
             if ((events[i].events & EPOLLOUT) && !connected)
             {
                 int       error = 0;
@@ -203,10 +212,11 @@ int main(int argc, char const* argv[]) {
                 {
                     LOG_ERROR("Agent", "Connect error",
                               ("{\"error\":\"" + std::string(strerror(error)) + "\"}").c_str());
+                    close(sock);
                     return 1;
                 }
-                connected        = true;
-                epoll_ev.events  = EPOLLIN | EPOLLET;
+                connected       = true;
+                epoll_ev.events = EPOLLIN | EPOLLET;
                 epoll_ctl(epoll_fd, EPOLL_CTL_MOD, sock, &epoll_ev);
                 LOG_INFO("Agent", "Connected",
                          ("{\"agent_id\":\"" + agentId + "\"}").c_str());
@@ -217,7 +227,8 @@ int main(int argc, char const* argv[]) {
                 uint8_t recv_buffer[4096];
                 bool    is_alive = true;
 
-                while (true) {
+                while (true)
+                {
                     ssize_t bytes_received = recv(sock, recv_buffer, sizeof(recv_buffer), 0);
                     if (bytes_received > 0)
                     {
@@ -265,8 +276,6 @@ int main(int argc, char const* argv[]) {
                 lastState = now;
             }
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     return 0;
