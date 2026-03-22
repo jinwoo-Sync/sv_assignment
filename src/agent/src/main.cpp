@@ -3,244 +3,258 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
-#include <memory>
+#include <ctime>
 #include <string>
 #include <thread>
-#include <vector>
 
 #include <netdb.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "iframe_handler.h"
 #include "socket_utils.h"
-#include "tcp_protocol.h"
+#include "stream_buffer.h"
 #include "logger_factory.h"
 
-namespace {
-
-std::vector<uint8_t> to_bytes(const std::string& text) {
-    return std::vector<uint8_t>(text.begin(), text.end());
+static std::string make_agent_id() {
+    const char* env = std::getenv("AGENT_ID");
+    return (env && *env) ? env : "agent-" + std::to_string(getpid());
 }
 
-std::string make_agent_id() {
-    const char* envId = std::getenv("AGENT_ID");
-    if (envId && *envId) {
-        return envId;
+// ── AgentSender ──────────────────────────────────────────────────
+// Controller에 보내는 프레임 전송 담당.
+class AgentSender {
+public:
+    AgentSender(int sock, sv::TcpProtocol& protocol, const std::string& agentId)
+        : m_sock(sock), m_protocol(protocol), m_agentId(agentId), m_seq(1) {}
+
+    bool sendHello() {
+        return sv::send_frame(m_sock, m_protocol, sv::MessageType::HELLO, m_seq++,
+                              "{\"agent_id\":\"" + m_agentId + "\",\"group\":\"default\"}");
     }
-    return "agent-" + std::to_string(getpid());
-}
 
-bool send_frame(int fd, sv::TcpProtocol& protocol, sv::MessageType type,
-                uint32_t seq, const std::string& payload) {
-    sv::Frame frame;
-    frame.type = type;
-    frame.seq  = seq;
-    frame.payload = to_bytes(payload);
+    bool sendHeartbeat() {
+        auto now_ms = std::chrono::steady_clock::now().time_since_epoch();
+        long long timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now_ms).count();
 
-    const std::vector<uint8_t> bytes = protocol.encode(frame);
-    size_t offset = 0;
-    while (offset < bytes.size()) {
-        ssize_t written =
-            send(fd, bytes.data() + offset, bytes.size() - offset, 0);
-        if (written > 0) {
-            offset += static_cast<size_t>(written);
-        } else if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            continue;
-        } else {
-            return false;
-        }
+        return sv::send_frame(m_sock, m_protocol, sv::MessageType::HEARTBEAT, m_seq++,
+                              "{\"agent_id\":\"" + m_agentId +
+                              "\",\"ts\":" + std::to_string(timestamp_ms) + "}");
     }
-    return true;
-}
 
-} // namespace
+    bool sendState() {
+        const double   cpu         = (rand() % 10001) / 100.0;        // 0.00 ~ 100.00 %
+        const double   temp        = 20.0 + (rand() % 7001) / 100.0;  // 20.00 ~ 90.00 °C
+        const double   load        = (rand() % 501) / 100.0;          // 0.00 ~ 5.00
+        const uint32_t current_seq = m_seq++;
+
+        return sv::send_frame(m_sock, m_protocol, sv::MessageType::STATE, current_seq,
+                              "{\"agent_id\":\"" + m_agentId +
+                              "\",\"seq\":"      + std::to_string(current_seq) +
+                              ",\"mode\":\"Active\""
+                              ",\"cpu_pct\":"     + std::to_string(cpu)  +
+                              ",\"temperature\":" + std::to_string(temp) +
+                              ",\"load_avg\":"   + std::to_string(load) + "}");
+    }
+
+private:
+    int              m_sock;
+    sv::TcpProtocol& m_protocol;
+    std::string      m_agentId;
+    uint32_t         m_seq;
+};
+
+// ── AgentFrameHandler ────────────────────────────────────────────
+// Controller → Agent 방향의 수신 콜백. IFrameHandler를 상속.
+// operator()와 switch 분기는 IFrameHandler가 담당하므로
+// 여기서는 필요한 onXxx()만 오버라이드.
+class AgentFrameHandler : public sv::IFrameHandler {
+public:
+    AgentFrameHandler(const std::string& agentId, AgentSender& sender)
+        : m_agentId(agentId), m_sender(sender) {}
+
+protected:
+    void onAck(const sv::Frame& frame) override {
+        const std::string payload(frame.payload.begin(), frame.payload.end());
+        LOG_INFO("Agent", "ACK",
+                 ("{\"agent_id\":\"" + m_agentId +
+                  "\",\"seq\":"     + std::to_string(frame.seq) +
+                  ",\"payload\":\""  + payload + "\"}").c_str());
+    }
+
+    void onNack(const sv::Frame& frame) override {
+        const std::string payload(frame.payload.begin(), frame.payload.end());
+        LOG_WARN("Agent", "NACK",
+                 ("{\"agent_id\":\"" + m_agentId +
+                  "\",\"seq\":"     + std::to_string(frame.seq) +
+                  ",\"payload\":\""  + payload + "\"}").c_str());
+    }
+
+    void onCmdStart(const sv::Frame& frame) override {
+        LOG_INFO("Agent", "CMD_START", ("{\"agent_id\":\"" + m_agentId + "\"}").c_str());
+        m_sender.sendHeartbeat();
+    }
+
+    void onCmdStop(const sv::Frame& frame) override {
+        LOG_INFO("Agent", "CMD_STOP", ("{\"agent_id\":\"" + m_agentId + "\"}").c_str());
+    }
+
+    void onCmdSetMode(const sv::Frame& frame) override {
+        const std::string payload(frame.payload.begin(), frame.payload.end());
+        LOG_INFO("Agent", "CMD_SET_MODE",
+                 ("{\"agent_id\":\"" + m_agentId +
+                  "\",\"payload\":\""  + payload + "\"}").c_str());
+    }
+
+    void onError(const sv::Frame& frame) override {
+        const std::string payload(frame.payload.begin(), frame.payload.end());
+        LOG_ERROR("Agent", "ERROR",
+                  ("{\"agent_id\":\"" + m_agentId +
+                   "\",\"payload\":\""  + payload + "\"}").c_str());
+    }
+
+private:
+    std::string  m_agentId;
+    AgentSender& m_sender;
+};
+
+// ── main ─────────────────────────────────────────────────────────
 
 int main(int argc, char const* argv[]) {
-    const char* target_host = (argc > 1) ? argv[1] : "controller";
+    const char*       host    = (argc > 1) ? argv[1] : "controller";
     const std::string agentId = make_agent_id();
+
     sv::LoggerFactory::instance().init(sv::LogLevel::INFO);
+    srand((unsigned int)time(nullptr));
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        perror("socket failed");
-        return 1;
+    if (sock < 0)
+    {
+        perror("socket"); return 1;
     }
     sv::set_nonblocking(sock);
 
-    struct hostent* he = nullptr;
-    while (true) {
-        he = gethostbyname(target_host);
-        if (he != nullptr) {
-            break;
-        }
+    struct hostent* host_entry = nullptr;
+    while (!(host_entry = gethostbyname(host))) {
         LOG_WARN("Agent", "DNS lookup failed",
-                 ("{\"target\":\"" + std::string(target_host) + "\"}").c_str());
+                 ("{\"target\":\"" + std::string(host) + "\"}").c_str());
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    struct sockaddr_in addr;
-    std::memset(&addr, 0, sizeof(addr));
+    struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(9090);
-    std::memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
+    addr.sin_port   = htons(9090);
+    std::memcpy(&addr.sin_addr, host_entry->h_addr_list[0], host_entry->h_length);
 
-    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        if (errno != EINPROGRESS) {
-            perror("connect failed");
-            return 1;
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        if (errno != EINPROGRESS)
+        {
+            perror("connect"); return 1;
         }
     }
 
     int epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0) {
-        perror("epoll_create1 failed");
-        return 1;
+    if (epoll_fd < 0)
+    {
+        perror("epoll_create1"); return 1;
     }
 
-    struct epoll_event ev;
-    std::memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLOUT | EPOLLET;
-    ev.data.fd = sock;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &ev) < 0) {
-        perror("epoll_ctl failed");
-        return 1;
-    }
+    struct epoll_event epoll_ev{};
+    epoll_ev.events  = EPOLLOUT | EPOLLET;
+    epoll_ev.data.fd = sock;
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &epoll_ev);
 
-    sv::TcpProtocol protocol;
-    std::vector<uint8_t> recvBuffer;
-    uint32_t seqCounter = 1;
+    sv::TcpProtocol   protocol;
+    AgentSender       sender(sock, protocol, agentId);
+    AgentFrameHandler handler(agentId, sender);
+
+    // IFrameHandler::onFrame: static 함수로 void* → AgentFrameHandler* 복원 후 dispatch.
+    sv::SvStreamBuffer stream(protocol, sv::IFrameHandler::onFrame, &handler);
+
     bool connected = false;
     bool helloSent = false;
-
     auto lastHeartbeat = std::chrono::steady_clock::now();
     auto lastState     = std::chrono::steady_clock::now();
 
-    const auto send_hello = [&]() {
-        std::string payload =
-            "{\"agent_id\":\"" + agentId + "\",\"group\":\"default\"}";
-        return send_frame(sock, protocol, sv::MessageType::HELLO, seqCounter++,
-                          payload);
-    };
-
-    const auto send_heartbeat = [&]() {
-        std::string payload =
-            "{\"agent_id\":\"" + agentId + "\",\"ts\":" +
-            std::to_string(
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch())
-                    .count()) +
-            "}";
-        return send_frame(sock, protocol, sv::MessageType::HEARTBEAT,
-                          seqCounter++, payload);
-    };
-
-    const auto send_state = [&]() {
-        double cpu = 20.0 + (seqCounter % 5) * 5.0;
-        double temp = 35.0 + (seqCounter % 3) * 2.0;
-        double load = 0.5 + (seqCounter % 4) * 0.1;
-        std::string payload =
-            "{\"agent_id\":\"" + agentId + "\",\"mode\":\"Active\","
-            "\"cpu_pct\":" + std::to_string(cpu) + ","
-            "\"temperature\":" + std::to_string(temp) + ","
-            "\"load_avg\":" + std::to_string(load) + "}";
-        return send_frame(sock, protocol, sv::MessageType::STATE, seqCounter++,
-                          payload);
-    };
-
     LOG_INFO("Agent", "Connecting",
-             ("{\"target\":\"" + std::string(target_host) +
-              "\",\"agent_id\":\"" + agentId + "\"}")
-                 .c_str());
+             ("{\"target\":\"" + std::string(host) +
+              "\",\"agent_id\":\"" + agentId + "\"}").c_str());
 
     struct epoll_event events[10];
     while (true) {
-        int nfds = epoll_wait(epoll_fd, events, 10, 100);
-        for (int i = 0; i < nfds; ++i) {
-            if ((events[i].events & EPOLLOUT) && !connected) {
-                int error = 0;
-                socklen_t len = sizeof(error);
+        int num_events = epoll_wait(epoll_fd, events, 10, 100);
+
+        for (int i = 0; i < num_events; ++i) {
+            if ((events[i].events & EPOLLOUT) && !connected)
+            {
+                int       error = 0;
+                socklen_t len   = sizeof(error);
                 getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &len);
-                if (error == 0) {
-                    LOG_INFO("Agent", "Connected", ("{\"agent_id\":\"" + agentId + "\"}").c_str());
-                    connected = true;
-                    ev.events = EPOLLIN | EPOLLET;
-                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, sock, &ev);
-                } else {
-                    LOG_ERROR("Agent", "Connect error", ("{\"error\":\"" + std::string(strerror(error)) + "\"}").c_str());
+                if (error != 0)
+                {
+                    LOG_ERROR("Agent", "Connect error",
+                              ("{\"error\":\"" + std::string(strerror(error)) + "\"}").c_str());
                     return 1;
                 }
+                connected        = true;
+                epoll_ev.events  = EPOLLIN | EPOLLET;
+                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, sock, &epoll_ev);
+                LOG_INFO("Agent", "Connected",
+                         ("{\"agent_id\":\"" + agentId + "\"}").c_str());
             }
 
-            if (events[i].events & EPOLLIN) {
-                uint8_t buf[1024];
-                bool alive = true;
+            if (events[i].events & EPOLLIN)
+            {
+                uint8_t recv_buffer[4096];
+                bool    is_alive = true;
+
                 while (true) {
-                    ssize_t bytes = recv(sock, buf, sizeof(buf), 0);
-                    if (bytes > 0) {
-                        recvBuffer.insert(recvBuffer.end(), buf, buf + bytes);
-                    } else if (bytes == 0) {
-                        alive = false;
+                    ssize_t bytes_received = recv(sock, recv_buffer, sizeof(recv_buffer), 0);
+                    if (bytes_received > 0)
+                    {
+                        stream.appendReceivedBytes(recv_buffer, static_cast<size_t>(bytes_received));
+                    }
+                    else if (bytes_received == 0)
+                    {
+                        is_alive = false; break;
+                    }
+                    else if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    {
                         break;
-                    } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                        break;
-                    } else {
-                        alive = false;
-                        break;
+                    }
+                    else
+                    {
+                        is_alive = false; break;
                     }
                 }
 
-                if (!alive) {
-                    LOG_WARN("Agent", "Controller disconnected", ("{\"agent_id\":\"" + agentId + "\"}").c_str());
+                if (!is_alive)
+                {
+                    LOG_WARN("Agent", "Controller disconnected",
+                             ("{\"agent_id\":\"" + agentId + "\"}").c_str());
                     close(sock);
                     return 0;
-                }
-
-                size_t offset = 0;
-                while (offset < recvBuffer.size()) {
-                    size_t consumed = 0;
-                    std::unique_ptr<sv::Frame> frame =
-                        protocol.decode(recvBuffer.data() + offset,
-                                        recvBuffer.size() - offset, consumed);
-                    if (!frame) {
-                        if (consumed == 0) {
-                            break;
-                        }
-                        offset += consumed;
-                        continue;
-                    }
-                    offset += consumed;
-
-                    std::string payload(frame->payload.begin(),
-                                        frame->payload.end());
-                    std::string fields = "{\"type\":" +
-                                         std::to_string(static_cast<int>(frame->type)) +
-                                         ",\"seq\":" + std::to_string(frame->seq) +
-                                         ",\"payload\":\"" + payload + "\"}";
-                    LOG_INFO("Agent", "Frame received", fields.c_str());
-                }
-
-                if (offset > 0 && offset <= recvBuffer.size()) {
-                    recvBuffer.erase(
-                        recvBuffer.begin(),
-                        recvBuffer.begin() + static_cast<long>(offset));
                 }
             }
         }
 
-        if (connected) {
-            if (!helloSent) {
-                helloSent = send_hello();
+        if (connected)
+        {
+            if (!helloSent)
+            {
+                helloSent = sender.sendHello();
             }
-
             auto now = std::chrono::steady_clock::now();
-            if (now - lastHeartbeat >= std::chrono::seconds(1)) {
-                send_heartbeat();
+            if (now - lastHeartbeat >= std::chrono::seconds(1))
+            {
+                sender.sendHeartbeat();
                 lastHeartbeat = now;
             }
-            if (now - lastState >= std::chrono::seconds(3)) {
-                send_state();
+            if (now - lastState >= std::chrono::seconds(3))
+            {
+                sender.sendState();
                 lastState = now;
             }
         }
