@@ -13,13 +13,25 @@
 #include "stream_buffer.h"
 #include "logger_factory.h"
 
+static std::string extract_str(const std::string& json, const std::string& key)
+{
+    std::string search = "\"" + key + "\":\"";
+    auto        pos    = json.find(search);
+    if (pos == std::string::npos)
+        return "";
+    auto start = pos + search.size();
+    auto end   = json.find('"', start);
+    return json.substr(start, end - start);
+}
+
 // ── ControllerFrameHandler ───────────────────────────────────────
 // Agent → Controller 방향 수신 콜백. IFrameHandler::onFrame이 SvStreamBuffer에 직접 등록됨.
 // Frame이 완성될 때마다 onXxx()가 바로 호출.
 class ControllerFrameHandler : public sv::IFrameHandler {
 public:
-    ControllerFrameHandler(int fd, sv::TcpProtocol& protocol)
-        : m_protocol(protocol)
+    ControllerFrameHandler(int fd, sv::TcpProtocol& protocol,
+                           std::string& agentId, std::string& group)
+        : m_protocol(protocol), m_agentId(agentId), m_group(group)
     {
         m_fd = fd;
     }
@@ -27,10 +39,15 @@ public:
 protected:
     void onHello(const sv::Frame& frame) override {
         const std::string payload(frame.payload.begin(), frame.payload.end());
+
+        m_agentId = extract_str(payload, "agent_id");
+        m_group   = extract_str(payload, "group");
+
         LOG_INFO("Controller", "HELLO",
-                 ("{\"fd\":" + std::to_string(m_fd) +
-                  ",\"seq\":" + std::to_string(frame.seq) +
-                  ",\"payload\":\"" + payload + "\"}").c_str());
+                 ("{\"fd\":"        + std::to_string(m_fd) +
+                  ",\"seq\":"       + std::to_string(frame.seq) +
+                  ",\"agent_id\":\"" + m_agentId +
+                  "\",\"group\":\""  + m_group + "\"}").c_str());
         sv::send_frame(m_fd, m_protocol, sv::MessageType::ACK,
                        frame.seq, "{\"status\":\"ok\"}");
     }
@@ -71,17 +88,21 @@ protected:
 
 private:
     sv::TcpProtocol& m_protocol;
+    std::string&     m_agentId;
+    std::string&     m_group;
 };
 
 // ── AgentStream ──────────────────────────────────────────────────
 // 연결당 1개 생성. ControllerFrameHandler와 SvStreamBuffer를 묶어 수명을 같이 관리.
 // SvStreamBuffer가 handler의 주소를 보관하므로 반드시 같이 있어야 함.
 struct AgentStream {
+    std::string            agentId;
+    std::string            group;
     ControllerFrameHandler handler;
     sv::SvStreamBuffer     stream;
 
     AgentStream(int fd, sv::TcpProtocol& protocol)
-        : handler(fd, protocol)
+        : handler(fd, protocol, agentId, group)
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
