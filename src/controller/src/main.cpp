@@ -107,10 +107,10 @@ struct AgentStream {
 };
 
 void broadcast_set_mode(const std::string& group, const std::string& mode,
-                               std::unordered_map<int, std::unique_ptr<AgentStream>>& streams,
+                               std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
                                sv::TcpProtocol& protocol)
 {
-    for (auto& agentEntry : streams)
+    for (auto& agentEntry : agentStreamMap)
     {
         if (agentEntry.second->group != group)
             continue;
@@ -127,10 +127,10 @@ void broadcast_set_mode(const std::string& group, const std::string& mode,
 }
 
 void close_connection(int fd, int epoll_fd,
-                             std::unordered_map<int, std::unique_ptr<AgentStream>>& streams) {
+                             std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap) {
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
-    streams.erase(fd);
+    agentStreamMap.erase(fd);
     LOG_INFO("Controller", "Agent disconnected",
              ("{\"fd\":" + std::to_string(fd) + "}").c_str());
 }
@@ -184,7 +184,7 @@ int main() {
     sv::TcpProtocol protocol;
 
     // fd → AgentStream (ControllerFrameHandler + SvStreamBuffer 묶음)
-    std::unordered_map<int, std::unique_ptr<AgentStream>> streams;
+    std::unordered_map<int, std::unique_ptr<AgentStream>> agentStreamMap;
 
     struct epoll_event events[MAX_EVENTS];
     while (true) {
@@ -217,7 +217,7 @@ int main() {
                 }
 
                 // 연결당 AgentStream 1개 생성 (ControllerFrameHandler + SvStreamBuffer)
-                streams[client_fd] = std::make_unique<AgentStream>(client_fd, protocol);
+                agentStreamMap[client_fd] = std::make_unique<AgentStream>(client_fd, protocol);
 
                 LOG_INFO("Controller", "Agent connected",
                          ("{\"fd\":" + std::to_string(client_fd) + "}").c_str());
@@ -232,7 +232,7 @@ int main() {
                 ssize_t bytes_received = recv(event_fd, recv_buffer, sizeof(recv_buffer), 0);
                 if (bytes_received > 0)
                 {
-                    streams[event_fd]->stream.appendReceivedBytes(
+                    agentStreamMap[event_fd]->stream.appendReceivedBytes(
                         recv_buffer, (size_t)bytes_received);
                 }
                 else if (bytes_received == 0)
@@ -251,7 +251,7 @@ int main() {
 
             if (!is_alive)
             {
-                close_connection(event_fd, epoll_fd, streams);
+                close_connection(event_fd, epoll_fd, agentStreamMap);
             }
         }
     }

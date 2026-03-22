@@ -120,7 +120,7 @@ sequenceDiagram
     AgentStream->>ControllerFrameHandler: handler(fd=5, protocol, agentId, group)
     AgentStream->>SvStreamBuffer: stream(protocol, IFrameHandler::onFrame, &handler)
     Note over SvStreamBuffer: m_pUser = &handler 저장
-    main->>main: streams[5] = AgentStream 저장
+    main->>main: agentStreamMap[5] = AgentStream 저장
 
     Agent->>epoll: HELLO 전송
     epoll->>main: EPOLLIN on fd=5
