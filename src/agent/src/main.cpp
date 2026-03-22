@@ -17,7 +17,7 @@
 #include "stream_buffer.h"
 #include "logger_factory.h"
 
-static std::string make_agent_id() {
+std::string make_agent_id() {
     const char* env = std::getenv("AGENT_ID");
     return (env && *env) ? env : "agent-" + std::to_string(getpid());
 }

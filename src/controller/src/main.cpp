@@ -13,7 +13,7 @@
 #include "stream_buffer.h"
 #include "logger_factory.h"
 
-static std::string extract_str(const std::string& json, const std::string& key)
+std::string extract_str(const std::string& json, const std::string& key)
 {
     std::string search = "\"" + key + "\":\"";
     auto        pos    = json.find(search);
@@ -106,7 +106,27 @@ struct AgentStream {
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
-static void close_connection(int fd, int epoll_fd,
+void broadcast_set_mode(const std::string& group, const std::string& mode,
+                               std::unordered_map<int, std::unique_ptr<AgentStream>>& streams,
+                               sv::TcpProtocol& protocol)
+{
+    for (auto& agentEntry : streams)
+    {
+        if (agentEntry.second->group != group)
+            continue;
+
+        const int fd = agentEntry.first;
+        bool ok = sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
+                                 "{\"mode\":\"" + mode + "\"}");
+        if (!ok)
+        {
+            LOG_WARN("Controller", "CMD_SET_MODE send failed",
+                     ("{\"fd\":" + std::to_string(fd) + ",\"group\":\"" + group + "\"}").c_str());
+        }
+    }
+}
+
+void close_connection(int fd, int epoll_fd,
                              std::unordered_map<int, std::unique_ptr<AgentStream>>& streams) {
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);

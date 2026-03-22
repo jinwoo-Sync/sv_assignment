@@ -13,7 +13,7 @@
 | 컴포넌트 | 역할 |
 |---------|------|
 | controller | epoll 서버. Agent 연결 수락·관리, 정책 판단, 명령 브로드캐스트 |
-| agent | 비차단 connect. HEARTBEAT/STATE 주기 송신 + CMD 수신 |
+| agent | 논블로킹 connect. HEARTBEAT/STATE 주기 송신 + CMD 수신 |
 | libs (`src/libs`) | sv_core (MemoryPool, TcpProtocol 등), sv_logger — 양측 공유 |
 
 ---
