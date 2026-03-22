@@ -98,6 +98,9 @@ private:
 struct AgentStream {
     std::string            agentId;
     std::string            group;
+    double                 cpu_percent  = 0.0;
+    double                 temperature  = 0.0;
+    double                 mem_percent  = 0.0;
     ControllerFrameHandler handler;
     sv::SvStreamBuffer     stream;
 

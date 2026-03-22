@@ -48,20 +48,20 @@ public:
             return (rand() % 10001) / 100.0; // 0.00 ~ 100.00
         };
 
-        double   cpu_pc      = random_pct();
-        double   temperature = random_pct();
-        double   mem         = random_pct();
-        double   cpu_avail   = std::max(0.0, 100.0 - cpu_pc);
-        uint32_t current_seq = m_seq++;
+        double   cpu_percent           = random_pct();
+        double   temperature           = random_pct();
+        double   mem_percent           = random_pct();
+        double   cpu_available_percent = std::max(0.0, 100.0 - cpu_percent);
+        uint32_t current_seq           = m_seq++;
 
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::STATE, current_seq,
                               "{\"agent_id\":\"" + m_agentId +
-                              "\",\"seq\":"               + std::to_string(current_seq) +
+                              "\",\"seq\":"                    + std::to_string(current_seq) +
                               ",\"mode\":\"Active\""
-                              ",\"cpu_pct\":"             + std::to_string(cpu_pc) +
-                              ",\"temperature\":"         + std::to_string(temperature) +
-                              ",\"mem_pct\":"             + std::to_string(mem) +
-                              ",\"cpu_available_pct\":"   + std::to_string(cpu_avail) + "}");
+                              ",\"cpu_percent\":"              + std::to_string(cpu_percent) +
+                              ",\"temperature\":"              + std::to_string(temperature) +
+                              ",\"mem_percent\":"              + std::to_string(mem_percent) +
+                              ",\"cpu_available_percent\":"    + std::to_string(cpu_available_percent) + "}");
     }
 
 private:
