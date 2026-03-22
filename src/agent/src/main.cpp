@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -44,18 +45,24 @@ public:
     }
 
     bool sendState() {
-        const double   cpu         = (rand() % 10001) / 100.0;        // 0.00 ~ 100.00 %
-        const double   temp        = 20.0 + (rand() % 7001) / 100.0;  // 20.00 ~ 90.00 °C
-        const double   load        = (rand() % 501) / 100.0;          // 0.00 ~ 5.00
-        const uint32_t current_seq = m_seq++;
+        auto random_pct = []() {
+            return (rand() % 10001) / 100.0; // 0.00 ~ 100.00
+        };
+
+        double   cpu_pc         = random_pct();
+        double   temperature = random_pct();
+        double   mem         = random_pct();
+        double   cpu_avail   = std::max(0.0, 100.0 - cpu_pc);
+        uint32_t current_seq = m_seq++;
 
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::STATE, current_seq,
                               "{\"agent_id\":\"" + m_agentId +
                               "\",\"seq\":"      + std::to_string(current_seq) +
                               ",\"mode\":\"Active\""
-                              ",\"cpu_pct\":"     + std::to_string(cpu)  +
-                              ",\"temperature\":" + std::to_string(temp) +
-                              ",\"load_avg\":"   + std::to_string(load) + "}");
+                              ",\"cpu_pct\":"          + std::to_string(cpu_pc)  +
+                              ",\"temperature\":"      + std::to_string(temperature) +
+                              ",\"mem_pct\":"          + std::to_string(mem)  +
+                              ",\"cpu_available_pct\":"+ std::to_string(cpu_avail) + "}");
     }
 
 private:
