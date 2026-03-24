@@ -47,16 +47,16 @@ docker stats sv-agent --no-stream
 `configs/policy.json` — Controller 이미지 빌드 시 포함됨:
 
 ```json
-{ "safe": 20.0, "normal": 50.0, "performance": 70.0 }
+{ "performance": 20.0, "normal": 50.0, "safe": 70.0 }
 ```
 
-| 모드 | 진입 조건 | 이탈 조건 |
-|------|----------|----------|
-| safe | avgLoad < 20 | avgLoad ≥ 50 |
-| normal | avgLoad ≥ 50 | avgLoad ≥ 70 또는 avgLoad < 20 |
-| performance | avgLoad ≥ 70 | avgLoad < 20 (safe로 직전환 가능) |
+| 모드 | 진입 조건 | 의미 |
+|------|----------|------|
+| performance | avgLoad < 20 | 여유 — agent 풀가동 |
+| normal | avgLoad ≥ 50 | 보통 부하 |
+| safe | avgLoad ≥ 70 | 과부하 — agent 스로틀 다운 |
 
-> **  zone (20~50)**: 현재 모드가 normal 이상이면 유지. 불필요한 모드 진동 방지.
+> **dead zone (20~50)**: 현재 모드 유지. 불필요한 모드 진동 방지.
 
 그룹별 에이전트 개수: `configs/agents.json` → `run_init_step.sh` 에서 읽어 `--scale` 인수 생성.
 

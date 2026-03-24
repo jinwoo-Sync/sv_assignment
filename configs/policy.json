@@ -1,5 +1,5 @@
 {
-  "safe":        20.0,
+  "performance": 20.0,
   "normal":      50.0,
-  "performance": 70.0
+  "safe":        70.0
 }
