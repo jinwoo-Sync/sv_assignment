@@ -66,33 +66,33 @@ int main() {
 
         if (num_events == 0)
         {
-            for (auto it = agentStreamMap.begin(); it != agentStreamMap.end(); )
+            for (auto agentMap_iterator = agentStreamMap.begin(); agentMap_iterator != agentStreamMap.end(); )
             {
-                if (!it->second->agentId.empty() && !checkHeartbeat(*it->second))
+                if (!agentMap_iterator->second->agentId.empty() && !checkHeartbeat(*agentMap_iterator->second))
                 {
                     LOG_WARN("Controller", "Heartbeat timeout",
-                             ("{\"fd\":"         + std::to_string(it->first) +
-                              ",\"agent_id\":\"" + it->second->agentId +
-                              "\",\"elapsed\":"  + std::to_string(time(nullptr) - it->second->lastHeartbeat) + "}").c_str());
-                    dead_agents[it->second->agentId] = time(nullptr);
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, it->first, nullptr);
-                    close(it->first);
-                    it = agentStreamMap.erase(it);
+                             ("{\"fd\":"         + std::to_string(agentMap_iterator->first) +
+                              ",\"agent_id\":\"" + agentMap_iterator->second->agentId +
+                              "\",\"elapsed\":"  + std::to_string(time(nullptr) - agentMap_iterator->second->lastHeartbeat) + "}").c_str());
+                    dead_agents[agentMap_iterator->second->agentId] = time(nullptr);
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, agentMap_iterator->first, nullptr);
+                    close(agentMap_iterator->first);
+                    agentMap_iterator = agentStreamMap.erase(agentMap_iterator);
                 }
                 else
                 {
-                    ++it;
+                    ++agentMap_iterator;
                 }
             }
 
-            for (auto dit = dead_agents.begin(); dit != dead_agents.end(); )
+            for (auto dead_agent_iterator = dead_agents.begin(); dead_agent_iterator != dead_agents.end(); )
             {
-                if (time(nullptr) - dit->second >= 3)
+                if (time(nullptr) - dead_agent_iterator->second >= 3)
                 {
-                    restart_agent_container(dit->first);
-                    dit = dead_agents.erase(dit);
+                    restart_agent_container(dead_agent_iterator->first);
+                    dead_agent_iterator = dead_agents.erase(dead_agent_iterator);
                 }
-                else { ++dit; }
+                else { ++dead_agent_iterator; }
             }
 
             for (const auto& entry : agentStreamMap)

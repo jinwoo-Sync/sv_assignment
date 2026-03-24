@@ -197,8 +197,8 @@ void close_connection(int fd, int epoll_fd,
                              std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
                              std::unordered_map<std::string, time_t>& dead_agents)
 {
-    auto it = agentStreamMap.find(fd);
-    std::string agentId = (it != agentStreamMap.end()) ? it->second->agentId : "";
+    auto agentMap_iterator = agentStreamMap.find(fd);
+    std::string agentId = (agentMap_iterator != agentStreamMap.end()) ? agentMap_iterator->second->agentId : "";
 
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
