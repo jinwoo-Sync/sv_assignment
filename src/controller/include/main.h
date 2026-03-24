@@ -194,7 +194,8 @@ void restart_agent_container(const std::string& agentId)
 }
 
 void close_connection(int fd, int epoll_fd,
-                             std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap)
+                             std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                             std::unordered_map<std::string, time_t>& dead_agents)
 {
     auto it = agentStreamMap.find(fd);
     std::string agentId = (it != agentStreamMap.end()) ? it->second->agentId : "";
@@ -206,5 +207,5 @@ void close_connection(int fd, int epoll_fd,
              ("{\"fd\":" + std::to_string(fd) + "}").c_str());
 
     if (!agentId.empty())
-        restart_agent_container(agentId);
+        dead_agents[agentId] = time(nullptr);
 }

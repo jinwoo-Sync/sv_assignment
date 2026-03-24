@@ -49,6 +49,9 @@ int main() {
     // fd → AgentStream (ControllerFrameHandler + SvStreamBuffer 묶음)
     std::unordered_map<int, std::unique_ptr<AgentStream>> agentStreamMap;
 
+    // 연결 끊긴 agent: agentId → 끊긴 시각 (3초 후 재시작)
+    std::unordered_map<std::string, time_t> dead_agents;
+
     sv::PolicyEngine policyEngine;
     policyEngine.setConfigPath("configs/policy.json");
     policyEngine.reload();
@@ -71,7 +74,7 @@ int main() {
                              ("{\"fd\":"         + std::to_string(it->first) +
                               ",\"agent_id\":\"" + it->second->agentId +
                               "\",\"elapsed\":"  + std::to_string(time(nullptr) - it->second->lastHeartbeat) + "}").c_str());
-                    restart_agent_container(it->second->agentId);
+                    dead_agents[it->second->agentId] = time(nullptr);
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, it->first, nullptr);
                     close(it->first);
                     it = agentStreamMap.erase(it);
@@ -80,6 +83,16 @@ int main() {
                 {
                     ++it;
                 }
+            }
+
+            for (auto dit = dead_agents.begin(); dit != dead_agents.end(); )
+            {
+                if (time(nullptr) - dit->second >= 3)
+                {
+                    restart_agent_container(dit->first);
+                    dit = dead_agents.erase(dit);
+                }
+                else { ++dit; }
             }
 
             for (const auto& entry : agentStreamMap)
@@ -150,7 +163,7 @@ int main() {
 
             if (!is_alive)
             {
-                close_connection(event_fd, epoll_fd, agentStreamMap);
+                close_connection(event_fd, epoll_fd, agentStreamMap, dead_agents);
             }
             else
             {

@@ -1,7 +1,7 @@
-{
-  "camera": 3,
-  "lidar": 1,
-  "imu": 1,
-  "sync_board": 1,
-  "pc": 1
-}
+{                                                                             
+  "camera": 1,                                                                
+  "lidar": 0,                                                                 
+  "imu": 0,     
+  "sync_board": 0,                                                            
+  "pc": 0       
+}     

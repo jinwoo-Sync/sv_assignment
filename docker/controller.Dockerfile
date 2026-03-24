@@ -17,6 +17,8 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF && \
 # Runtime stage
 FROM ubuntu:20.04
 
+RUN apt-get update && apt-get install -y docker.io && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=builder /build/bin/Release/controller .
 COPY --from=builder /build/bin/Release/libsv_core.so /usr/local/lib/
