@@ -11,4 +11,4 @@ print(' '.join(f'--scale {k}={v}' for k, v in json.load(open('configs/agents.jso
 docker compose -f docker/docker-compose.yml up --build -d $SCALE
 sleep 5
 
-docker logs sv-controller
+docker logs -f sv-controller
