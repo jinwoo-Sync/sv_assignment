@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -46,15 +47,18 @@ class ControllerFrameHandler : public sv::IFrameHandler {
 public:
     ControllerFrameHandler(int fd, sv::TcpProtocol& protocol,
                            std::string& agentId, std::string& group,
-                           double& cpu_percent, double& temperature, double& mem_percent)
+                           double& cpu_percent, double& temperature, double& mem_percent,
+                           time_t& lastHeartbeat)
         : m_protocol(protocol), m_agentId(agentId), m_group(group)
         , m_cpu_percent(cpu_percent), m_temperature(temperature), m_mem_percent(mem_percent)
+        , m_lastHeartbeat(lastHeartbeat)
     {
         m_fd = fd;
     }
 
 protected:
     void onHello(const sv::Frame& frame) override {
+        m_lastHeartbeat = time(nullptr);
         const std::string payload(frame.payload.begin(), frame.payload.end());
 
         m_agentId = extract_str(payload, "agent_id");
@@ -70,6 +74,7 @@ protected:
     }
 
     void onHeartbeat(const sv::Frame& frame) override {
+        m_lastHeartbeat = time(nullptr);
         const std::string payload(frame.payload.begin(), frame.payload.end());
         LOG_INFO("Controller", "HEARTBEAT",
                  ("{\"fd\":" + std::to_string(m_fd) +
@@ -117,22 +122,25 @@ private:
     double&          m_cpu_percent;
     double&          m_temperature;
     double&          m_mem_percent;
+    time_t&          m_lastHeartbeat;
 };
 
 // ── AgentStream ──────────────────────────────────────────────────
 // 연결당 1개 생성. ControllerFrameHandler와 SvStreamBuffer를 묶어 수명을 같이 관리.
 // SvStreamBuffer가 handler의 주소를 보관하므로 반드시 같이 있어야 함.
 struct AgentStream {
-    std::string            agentId;
-    std::string            group;
-    double                 cpu_percent  = 0.0;
-    double                 temperature  = 0.0;
-    double                 mem_percent  = 0.0;
-    ControllerFrameHandler handler;
-    sv::SvStreamBuffer     stream;
+    std::string                           agentId;
+    std::string                           group;
+    double                                cpu_percent   = 0.0;
+    double                                temperature   = 0.0;
+    double                                mem_percent   = 0.0;
+    time_t                                lastHeartbeat = time(nullptr);
+    ControllerFrameHandler                handler;
+    sv::SvStreamBuffer                    stream;
 
     AgentStream(int fd, sv::TcpProtocol& protocol)
-        : handler(fd, protocol, agentId, group, cpu_percent, temperature, mem_percent)
+        : handler(fd, protocol, agentId, group,
+                  cpu_percent, temperature, mem_percent, lastHeartbeat)
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
@@ -171,6 +179,11 @@ void broadcast_set_mode(const std::string& group, const std::string& mode,
                      ("{\"fd\":" + std::to_string(fd) + ",\"group\":\"" + group + "\"}").c_str());
         }
     }
+}
+
+bool checkHeartbeat(const AgentStream& agent)
+{
+    return (time(nullptr) - agent.lastHeartbeat) < 3;
 }
 
 void close_connection(int fd, int epoll_fd,
@@ -248,6 +261,24 @@ int main() {
 
         if (num_events == 0)
         {
+            for (auto it = agentStreamMap.begin(); it != agentStreamMap.end(); )
+            {
+                if (!it->second->agentId.empty() && !checkHeartbeat(*it->second))
+                {
+                    LOG_WARN("Controller", "Heartbeat timeout",
+                             ("{\"fd\":"         + std::to_string(it->first) +
+                              ",\"agent_id\":\"" + it->second->agentId +
+                              "\",\"elapsed\":"  + std::to_string(time(nullptr) - it->second->lastHeartbeat) + "}").c_str());
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, it->first, nullptr);
+                    close(it->first);
+                    it = agentStreamMap.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+
             for (const auto& entry : agentStreamMap)
             {
                 if (entry.second->group.empty()) continue;
