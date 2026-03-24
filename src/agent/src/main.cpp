@@ -20,7 +20,10 @@
 // 유효 그룹: camera | lidar | imu | sync_board | pc
 std::string make_agent_id() {
     const char* env = std::getenv("AGENT_ID");
-    return (env && *env) ? env : "agent-" + std::to_string(getpid());
+    if (env && *env) return env;
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0) return hostname;
+    return "agent-" + std::to_string(getpid());
 }
 
 std::string make_group() {

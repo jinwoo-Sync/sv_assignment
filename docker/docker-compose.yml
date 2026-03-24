@@ -4,8 +4,6 @@ x-agent: &agent
   build:
     context: ../
     dockerfile: docker/agent.Dockerfile
-  environment:
-    - AGENT_ID=${HOSTNAME}
   depends_on:
     - controller
   networks:
@@ -26,26 +24,31 @@ services:
     <<: *agent
     environment:
       - AGENT_GROUP=camera
+      - AGENT_ID=camera-${COMPOSE_SERVICE_INDEX:-1}
 
   lidar:
     <<: *agent
     environment:
       - AGENT_GROUP=lidar
+      - AGENT_ID=lidar-${COMPOSE_SERVICE_INDEX:-1}
 
   imu:
     <<: *agent
     environment:
       - AGENT_GROUP=imu
+      - AGENT_ID=imu-${COMPOSE_SERVICE_INDEX:-1}
 
   sync_board:
     <<: *agent
     environment:
       - AGENT_GROUP=sync_board
+      - AGENT_ID=sync_board-${COMPOSE_SERVICE_INDEX:-1}
 
   pc:
     <<: *agent
     environment:
       - AGENT_GROUP=pc
+      - AGENT_ID=pc-${COMPOSE_SERVICE_INDEX:-1}
 
 networks:
   sv_network:
