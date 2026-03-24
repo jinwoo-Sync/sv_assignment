@@ -57,6 +57,10 @@ int main()
     policyEngine.setConfigPath("configs/policy.json");
     policyEngine.reload();
 
+    // policy.json 핫-리로드용 마지막 mtime (초기값 0 → 첫 루프에서 갱신만, reload는 스킵)
+    time_t config_mtime = 0;
+    check_config_mtime("configs/policy.json", config_mtime);
+
     struct epoll_event events[MAX_EVENTS];
     while (true) {
         int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, 1000);
@@ -70,6 +74,12 @@ int main()
         if (num_events == 0)
         {
             check_heartbeat_timeouts(epoll_fd, agentStreamMap, dead_agents);
+
+            if (check_config_mtime("configs/policy.json", config_mtime))
+            {
+                LOG_INFO("Controller", "hot reload", "{\"path\":\"configs/policy.json\"}");
+                policyEngine.reload();
+            }
 
             for (auto dead_agent_iterator = dead_agents.begin(); dead_agent_iterator != dead_agents.end(); )
             {

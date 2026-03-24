@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "iframe_handler.h"
@@ -135,6 +136,7 @@ struct AgentStream {
     double                                temperature   = 0.0;
     double                                mem_percent   = 0.0;
     time_t                                lastHeartbeat = time(nullptr);
+    bool                                  isUnhealthy   = false;
     ControllerFrameHandler                handler;
     sv::SvStreamBuffer                    stream;
 
@@ -179,27 +181,58 @@ void broadcast_set_mode(const std::string& group, const std::string& mode,
     }
 }
 
-// ── 헬스체크 타임아웃 감지 → dead_agents 등록 ────────────────────
+// ── 헬스체크 타임아웃 감지
+//    3s~10s : Unhealthy — 연결 유지, agent 자가 회복 대기
+//    10s 초과: 연결 강제 종료 → dead_agents 등록 → docker restart
 void check_heartbeat_timeouts(int epoll_fd,
                                std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
                                std::unordered_map<std::string, time_t>& dead_agents)
 {
     for (auto agentMap_iterator = agentStreamMap.begin(); agentMap_iterator != agentStreamMap.end(); )
     {
-        if (!agentMap_iterator->second->agentId.empty() &&
-            (time(nullptr) - agentMap_iterator->second->lastHeartbeat) >= 3)
+        if (agentMap_iterator->second->agentId.empty())
         {
-            LOG_WARN("Controller", "Heartbeat timeout",
+            agentMap_iterator = std::next(agentMap_iterator);
+            continue;
+        }
+
+        const time_t elapsed = time(nullptr) - agentMap_iterator->second->lastHeartbeat;
+
+        if (elapsed >= 10)
+        {
+            // 10초 초과 → 강제 종료 + docker restart
+            LOG_WARN("Controller", "Heartbeat timeout, force restart",
                      ("{\"fd\":"         + std::to_string(agentMap_iterator->first) +
                       ",\"agent_id\":\"" + agentMap_iterator->second->agentId +
-                      "\",\"elapsed\":"  + std::to_string(time(nullptr) - agentMap_iterator->second->lastHeartbeat) + "}").c_str());
+                      "\",\"elapsed\":"  + std::to_string(elapsed) + "}").c_str());
             dead_agents[agentMap_iterator->second->agentId] = time(nullptr);
             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, agentMap_iterator->first, nullptr);
             close(agentMap_iterator->first);
             agentMap_iterator = agentStreamMap.erase(agentMap_iterator);
         }
+        else if (elapsed >= 3)
+        {
+            // 3s~10s → Unhealthy, 첫 진입 시에만 로그
+            if (!agentMap_iterator->second->isUnhealthy)
+            {
+                agentMap_iterator->second->isUnhealthy = true;
+                LOG_WARN("Controller", "Unhealthy",
+                         ("{\"fd\":"         + std::to_string(agentMap_iterator->first) +
+                          ",\"agent_id\":\"" + agentMap_iterator->second->agentId +
+                          "\",\"elapsed\":"  + std::to_string(elapsed) + "}").c_str());
+            }
+            agentMap_iterator = std::next(agentMap_iterator);
+        }
         else
         {
+            // elapsed < 3s → 정상 or 회복
+            if (agentMap_iterator->second->isUnhealthy)
+            {
+                agentMap_iterator->second->isUnhealthy = false;
+                LOG_INFO("Controller", "Recovered",
+                         ("{\"fd\":"         + std::to_string(agentMap_iterator->first) +
+                          ",\"agent_id\":\"" + agentMap_iterator->second->agentId + "}").c_str());
+            }
             agentMap_iterator = std::next(agentMap_iterator);
         }
     }
@@ -254,4 +287,16 @@ void handle_new_connection(int server_fd, int epoll_fd,
     agentStreamMap[client_fd] = std::make_unique<AgentStream>(client_fd, protocol);
     LOG_INFO("Controller", "Agent connected",
              ("{\"fd\":" + std::to_string(client_fd) + "}").c_str());
+}
+
+// ── policy.json mtime 변경 감지 → 변경됐으면 true 반환 ──────────
+bool check_config_mtime(const std::string& path, time_t& last_mtime)
+{
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0)
+        return false;
+    if (st.st_mtime == last_mtime)
+        return false;
+    last_mtime = st.st_mtime;
+    return true;
 }
