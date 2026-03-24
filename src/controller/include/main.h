@@ -51,10 +51,10 @@ public:
     ControllerFrameHandler(int fd, sv::TcpProtocol& protocol,
                            std::string& agentId, std::string& group,
                            double& cpu_percent, double& temperature, double& mem_percent,
-                           time_t& lastHeartbeat)
+                           time_t& lastHeartbeat, std::string& last_mode)
         : m_protocol(protocol), m_agentId(agentId), m_group(group)
         , m_cpu_percent(cpu_percent), m_temperature(temperature), m_mem_percent(mem_percent)
-        , m_lastHeartbeat(lastHeartbeat)
+        , m_lastHeartbeat(lastHeartbeat), m_last_mode(last_mode)
     {
         m_fd = fd;
     }
@@ -105,10 +105,11 @@ protected:
     }
 
     void onNack(const sv::Frame& frame) override {
-        const std::string payload(frame.payload.begin(), frame.payload.end());
-        LOG_WARN("Controller", "NACK",
-                 ("{\"fd\":" + std::to_string(m_fd) +
-                  ",\"payload\":\"" + payload + "\"}").c_str());
+        LOG_WARN("Controller", "NACK received",
+                 ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId + "\"}").c_str());
+        LOG_ERROR("Controller", "NACK fallback: giving up",
+                  ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId +
+                   "\",\"last_mode\":\"" + m_last_mode + "\"}").c_str());
     }
 
     void onError(const sv::Frame& frame) override {
@@ -126,6 +127,7 @@ private:
     double&          m_temperature;
     double&          m_mem_percent;
     time_t&          m_lastHeartbeat;
+    std::string&     m_last_mode;
 };
 
 // ── AgentStream ──────────────────────────────────────────────────
@@ -137,12 +139,13 @@ struct AgentStream {
     double                                mem_percent   = 0.0;
     time_t                                lastHeartbeat = time(nullptr);
     bool                                  isUnhealthy   = false;
+    std::string                           last_mode;
     ControllerFrameHandler                handler;
     sv::SvStreamBuffer                    stream;
 
     AgentStream(int fd, sv::TcpProtocol& protocol)
         : handler(fd, protocol, agentId, group,
-                  cpu_percent, temperature, mem_percent, lastHeartbeat)
+                  cpu_percent, temperature, mem_percent, lastHeartbeat, last_mode)
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
@@ -165,17 +168,18 @@ double calcGroupAvgLoad(const std::string& group,
 
 // ── 그룹 내 전체 agent에 CMD_SET_MODE 전송 ──────────────────────
 void broadcast_set_mode(const std::string& group, const std::string& mode,
-                        const std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                        std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
                         sv::TcpProtocol& protocol)
 {
-    for (const auto& agentStreamMap_entry : agentStreamMap)
+    for (auto& agentStreamMap_entry : agentStreamMap)
     {
         if (agentStreamMap_entry.second->group != group) continue;
 
         const int fd = agentStreamMap_entry.first;
-        bool ok = sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
-                                 "{\"mode\":\"" + mode + "\"}");
-        if (!ok)
+        if (sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
+                           "{\"mode\":\"" + mode + "\"}"))
+            agentStreamMap_entry.second->last_mode = mode;
+        else
             LOG_WARN("Controller", "CMD_SET_MODE send failed",
                      ("{\"fd\":" + std::to_string(fd) + ",\"group\":\"" + group + "\"}").c_str());
     }

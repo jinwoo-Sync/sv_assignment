@@ -1,7 +1,22 @@
-{                                                                             
-  "camera": 1,                                                                
-  "lidar": 0,                                                                 
-  "imu": 0,     
-  "sync_board": 0,                                                            
-  "pc": 0       
-}     
+{
+  "camera": {
+    "count": 2,
+    "nack_mode": false
+  },
+  "lidar": {
+    "count": 0,
+    "nack_mode": false
+  },
+  "imu": {
+    "count": 1,
+    "nack_mode": true
+  },
+  "sync_board": {
+    "count": 0,
+    "nack_mode": false
+  },
+  "pc": {
+    "count": 0,
+    "nack_mode": false
+  }
+}

@@ -40,6 +40,7 @@ services:
     environment:
       - AGENT_GROUP=imu
       - AGENT_ID=imu-${COMPOSE_SERVICE_INDEX:-1}
+      - FAULT_MODE=nack
 
   sync_board:
     <<: *agent

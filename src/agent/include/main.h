@@ -48,6 +48,11 @@ public:
                               "{\"agent_id\":\"" + m_agentId + "\",\"mode\":\"" + mode + "\"}");
     }
 
+    bool sendNack(uint32_t seq) {
+        return sv::send_frame(m_sock, m_protocol, sv::MessageType::NACK, seq,
+                              "{\"agent_id\":\"" + m_agentId + "\"}");
+    }
+
     bool sendHello() {
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::HELLO, m_seq++,
                               "{\"agent_id\":\"" + m_agentId + "\",\"group\":\"" + m_group + "\"}");
@@ -125,6 +130,13 @@ protected:
     }
 
     void onCmdSetMode(const sv::Frame& frame) override {
+        const char* fault = std::getenv("FAULT_MODE");
+        if (fault && std::string(fault) == "nack")
+        {
+            LOG_WARN("Agent", "NACK injected", ("{\"agent_id\":\"" + m_agentId + "\"}").c_str());
+            m_sender.sendNack(frame.seq);
+            return;
+        }
         const std::string payload(frame.payload.begin(), frame.payload.end());
 
         const std::string search = "\"mode\":\"";
