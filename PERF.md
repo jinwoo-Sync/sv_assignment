@@ -42,18 +42,32 @@ docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsag
 | 2024-03-21 | `test_logger.cpp` 컴파일 오류 수정, Logger 단위 테스트 3/3 통과 |
 | 2024-03-21 | MemoryPool 단위 테스트 1단계 통과 |
 | 2024-03-22 | HELLO/HEARTBEAT/STATE/ACK 교환 및 CRC 검증 확인 (1v3) |
+| 2026-03-23 | PolicyEngine 단위 테스트 8/8 통과, CMD_SET_MODE ACK 프로토콜 단위 테스트 3/3 통과 |
+| 2026-03-23 | Docker 7-agent 실 구동 검증: avgLoad=74.73 → performance 모드 전환 확인 |
 
 ## 6. 단위 테스트 결과
 
-| 모듈 | 항목 | 결과 |
-|------|------|------|
-| Logger | 싱글턴, 레벨 필터링, 매크로 안정성 | PASS |
-| MemoryPool | 초기화, acquire/release, pool 고갈 | PASS |
+| 모듈 | 항목 | 케이스 수 | 결과 |
+|------|------|-----------|------|
+| Logger | 싱글턴, 레벨 필터링, 매크로 안정성 | 3 | PASS |
+| PolicyEngine | 임계치 초과·이하, 모드 전환,  , 그룹 독립성 | 3 | PASS |
+| CMD_SET_MODE ACK | encode/decode 왕복, ACK seq 보존 | 3 | PASS |
 
 ![Logger gtest 결과](asset/logger_gtest결과.png)
 ![MemoryPool 단위테스트](asset/memory_pool재구현_단위테스트재시작.png)
 
-## 7. TODO
+## 7. PolicyEngine 실 구동 측정 (2026-03-23)
+
+Docker 1 Controller + 7 Agent (camera×3, lidar×1, imu×1, sync_board×1, pc×1) 환경에서 관찰된 값:
+
+| 항목 | 값 |
+|------|-----|
+| 관측 avgLoad (camera 그룹) | 74.73 |
+| 정책 결정 결과 | performance |
+| CMD_SET_MODE 전송 → ACK 수신 | 확인 |
+| epoll_wait 주기 | 1000 ms |
+
+## 8. TODO
 
 - Round-trip latency 자동 계측 스크립트
-- ThresholdPolicyEngine 도입 후 CPU 영향 재측정
+- 핫-리로드 (policy.json 변경) 후 CPU 영향 재측정
