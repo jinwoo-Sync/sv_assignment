@@ -1,5 +1,16 @@
 name: sv-assignment
 
+x-agent: &agent
+  build:
+    context: ../
+    dockerfile: docker/agent.Dockerfile
+  environment:
+    - AGENT_ID=${HOSTNAME}
+  depends_on:
+    - controller
+  networks:
+    - sv_network
+
 services:
   controller:
     container_name: sv-controller
@@ -11,14 +22,30 @@ services:
     networks:
       - sv_network
 
-  agent:
-    build:
-      context: ../
-      dockerfile: docker/agent.Dockerfile
-    depends_on:
-      - controller
-    networks:
-      - sv_network
+  camera:
+    <<: *agent
+    environment:
+      - AGENT_GROUP=camera
+
+  lidar:
+    <<: *agent
+    environment:
+      - AGENT_GROUP=lidar
+
+  imu:
+    <<: *agent
+    environment:
+      - AGENT_GROUP=imu
+
+  sync_board:
+    <<: *agent
+    environment:
+      - AGENT_GROUP=sync_board
+
+  pc:
+    <<: *agent
+    environment:
+      - AGENT_GROUP=pc
 
 networks:
   sv_network:
