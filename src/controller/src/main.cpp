@@ -240,10 +240,23 @@ int main() {
 
     struct epoll_event events[MAX_EVENTS];
     while (true) {
-        int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, 1000);
         if (num_events < 0)
         {
             perror("epoll_wait"); break;
+        }
+
+        if (num_events == 0)
+        {
+            for (const auto& entry : agentStreamMap)
+            {
+                if (entry.second->group.empty()) continue;
+                const std::string& g    = entry.second->group;
+                std::string        mode = policyEngine.evaluate(g, calcGroupAvgLoad(g, agentStreamMap));
+                if (!mode.empty())
+                    broadcast_set_mode(g, mode, agentStreamMap, tcpProtocolCodec);
+            }
+            continue;
         }
 
         for (int i = 0; i < num_events; ++i) {
@@ -311,7 +324,7 @@ int main() {
                 if (!group.empty())
                 {
                     double      avgLoad = calcGroupAvgLoad(group, agentStreamMap);
-                    std::string mode    = policyEngine.decide(group, avgLoad);
+                    std::string mode    = policyEngine.evaluate(group, avgLoad);
                     if (!mode.empty())
                         broadcast_set_mode(group, mode, agentStreamMap, tcpProtocolCodec);
                 }
