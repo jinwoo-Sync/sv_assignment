@@ -23,6 +23,7 @@ WORKDIR /app
 COPY --from=builder /build/bin/Release/controller .
 COPY --from=builder /build/bin/Release/libsv_core.so /usr/local/lib/
 COPY --from=builder /build/bin/Release/libsv_logger.so /usr/local/lib/
+COPY --from=builder /build/bin/Release/libsv_policy.so /usr/local/lib/
 COPY --from=builder /build/configs ./configs
 RUN ldconfig
 
