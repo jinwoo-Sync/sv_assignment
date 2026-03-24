@@ -2,4 +2,5 @@ cmake_minimum_required(VERSION 3.10)
 project(controller)
 
 add_executable(controller src/main.cpp)
+target_include_directories(controller PRIVATE include)
 target_link_libraries(controller PRIVATE sv_core sv_logger sv_policy)

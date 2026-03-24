@@ -53,7 +53,52 @@
 
 ---
 
-## 4. 파일 책임
+## 4. Framing 시퀀스
+
+TCP는 바이트 스트림이다. "어디서 어디까지가 하나의 메시지인지" TCP 자체는 보장하지 않는다.
+
+```
+보낸 것:  [HELLO 100B][HEARTBEAT 50B]
+받는 쪽:  [70B] → [80B]   ← TCP가 임의로 분할해서 도착
+```
+
+이를 해결하기 위해 송수신 양단에 프레이밍 계층을 직접 구현한다.
+
+**송신 경로**
+```
+application
+  └─ send_frame(fd, type, seq, payload)
+       └─ TcpProtocol::encode(Frame)   → [Magic][Ver][Type][Seq][Len][Payload][CRC32]
+       └─ send(fd, bytes)              → TCP 소켓으로 전송
+```
+
+**수신 경로**
+```
+TCP 소켓
+  └─ recv(fd, buf)
+       └─ SvStreamBuffer::appendReceivedBytes()   조각을 내부 버퍼에 누적
+            Header의 Length 필드를 보고 완성 판단
+            완성되면 TcpProtocol::decode() 호출
+       └─ TcpProtocol::decode(bytes)   → Frame 복원, CRC32 검증
+       └─ IFrameHandler::onFrame()     → dispatch() → onHello() / onHeartbeat() / ...
+```
+```
+[Magic 2B][Version 1B][Type 1B][Seq 4B][Length 4B][Payload NB][CRC32 4B]
+                                                                                
+  - TcpProtocol::encode() → Frame을 이 형식의 바이트로 변환                     
+  - SvStreamBuffer → TCP에서 온 바이트 조각들을 모아서 Header의 Length를 보고   
+    "여기까지가 한 Frame이다" 판단                                                
+  - TcpProtocol::decode() → 완성된 바이트를 다시 Frame 객체로 변환
+
+송신: Frame → encode() → bytes → send() → TCP             
+수신: TCP → recv() → SvStreamBuffer(조각 재조립) → decode() → Frame
+```
+
+**Frame은 코드 내부 구조체다.** 실제로 소켓에 오가는 것은 encode된 바이트열이며, Frame 객체는 송수신 양단에서만 존재한다.
+
+---
+
+## 5. 파일 설명
 
 | 파일 | 역할 |
 |:-----|:-----|
@@ -71,7 +116,7 @@
 
 ---
 
-## 5. epoll 수신 흐름
+## 6. epoll 수신 흐름
 
 **Controller** (단일 쓰레드, 별도 처리 쓰레드 없음)
 ```
@@ -100,7 +145,7 @@ epoll_wait()
                    └─ ERROR        → onError()
 ```
 
-### Agent 연결 ~ HELLO 처리 시퀀스
+### 7. Agent 연결 ~ HELLO 처리 시퀀스
 
 ```mermaid
 sequenceDiagram
@@ -186,7 +231,7 @@ SvStreamBuffer ──► IFrameHandler (인터페이스)
 
 ---
 
-## 6. 빌드 구조
+## 8. 빌드 구조
 
 | 구분 | 진입점 | 출력 |
 |------|--------|------|
@@ -213,11 +258,10 @@ sv_assignment/
 
 ---
 
-## 7. 단위 테스트 현황
+## 9. 단위 테스트 현황
 
 | 모듈 | 테스트 항목 | 상태 |
 |------|------------|------|
-| MemoryPool | 초기화, acquire/release, pool 고갈 | 완료 |
 | Logger | 싱글턴, 레벨 필터링, 매크로 안정성 | 완료 |
 | TcpProtocol encode/decode | 라운드트립 검증 | TODO |
 | SvStreamBuffer | TCP 분할 수신 재조립 | TODO |
@@ -225,7 +269,7 @@ sv_assignment/
 
 ---
 
-## 8. 구현 단계
+## 10. 구현 단계
 
 | Phase | 내용 | 점수 |
 |-------|------|------|
