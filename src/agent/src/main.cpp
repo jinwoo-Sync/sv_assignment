@@ -17,23 +17,35 @@
 #include "stream_buffer.h"
 #include "logger_factory.h"
 
+// 유효 그룹: camera | lidar | imu | sync_board | pc
 std::string make_agent_id() {
     const char* env = std::getenv("AGENT_ID");
     return (env && *env) ? env : "agent-" + std::to_string(getpid());
+}
+
+std::string make_group() {
+    const char* env = std::getenv("AGENT_GROUP");
+    return (env && *env) ? env : "pc";
 }
 
 // ── AgentSender ──────────────────────────────────────────────────
 // Controller에 보내는 프레임 전송 담당.
 class AgentSender {
 public:
-    AgentSender(int sock, sv::TcpProtocol& protocol, const std::string& agentId)
-        : m_sock(sock), m_protocol(protocol), m_agentId(agentId), m_seq(1) {}
+    AgentSender(int sock, sv::TcpProtocol& protocol,
+                const std::string& agentId, const std::string& group)
+        : m_sock(sock), m_protocol(protocol), m_agentId(agentId), m_group(group), m_seq(1) {}
 
     void setMode(const std::string& mode) { m_mode = mode; }
-    
+
+    bool sendAck(uint32_t seq, const std::string& mode) {
+        return sv::send_frame(m_sock, m_protocol, sv::MessageType::ACK, seq,
+                              "{\"agent_id\":\"" + m_agentId + "\",\"mode\":\"" + mode + "\"}");
+    }
+
     bool sendHello() {
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::HELLO, m_seq++,
-                              "{\"agent_id\":\"" + m_agentId + "\",\"group\":\"default\"}");
+                              "{\"agent_id\":\"" + m_agentId + "\",\"group\":\"" + m_group + "\"}");
     }
 
     bool sendHeartbeat() {
@@ -70,8 +82,9 @@ private:
     int              m_sock;
     sv::TcpProtocol& m_protocol;
     std::string      m_agentId;
+    std::string      m_group;
     uint32_t         m_seq;
-    std::string      m_mode{"active"};
+    std::string      m_mode{"normal"};
 };
 
 // ── AgentFrameHandler ────────────────────────────────────────────
@@ -119,7 +132,11 @@ protected:
             auto start = pos + search.size();
             auto end   = payload.find('"', start);
             if (end != std::string::npos)
-                m_sender.setMode(payload.substr(start, end - start));
+            {
+                const std::string mode = payload.substr(start, end - start);
+                m_sender.setMode(mode);
+                m_sender.sendAck(frame.seq, mode);
+            }
         }
 
         LOG_INFO("Agent", "CMD_SET_MODE",
@@ -144,6 +161,7 @@ private:
 int main(int argc, char* argv[]) {
     const char* host    = (argc > 1) ? argv[1] : "controller";
     std::string agentId = make_agent_id();
+    std::string group   = make_group();
 
     sv::LoggerFactory::instance().init(sv::LogLevel::INFO);
     srand((unsigned int)time(nullptr));
@@ -197,7 +215,7 @@ int main(int argc, char* argv[]) {
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &epoll_ev);
 
     sv::TcpProtocol   protocol;
-    AgentSender       sender(sock, protocol, agentId);
+    AgentSender       sender(sock, protocol, agentId, group);
     AgentFrameHandler handler(agentId, sender);
     sv::SvStreamBuffer stream(protocol, sv::IFrameHandler::onFrame, &handler);
 
