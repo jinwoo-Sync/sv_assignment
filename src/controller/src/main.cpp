@@ -1,6 +1,7 @@
 #include "main.h"
 
-int main() {
+int main() 
+{
     const int PORT       = 9090;
     const int MAX_EVENTS = 100;
 
@@ -61,29 +62,14 @@ int main() {
         int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, 1000);
         if (num_events < 0)
         {
-            perror("epoll_wait"); break;
+            perror("epoll_wait"); 
+            break;
         }
 
+        // ── 1초 타임아웃: 헬스체크 / dead agent 재시작 / 정책 평가 ──
         if (num_events == 0)
         {
-            for (auto agentMap_iterator = agentStreamMap.begin(); agentMap_iterator != agentStreamMap.end(); )
-            {
-                if (!agentMap_iterator->second->agentId.empty() && !checkHeartbeat(*agentMap_iterator->second))
-                {
-                    LOG_WARN("Controller", "Heartbeat timeout",
-                             ("{\"fd\":"         + std::to_string(agentMap_iterator->first) +
-                              ",\"agent_id\":\"" + agentMap_iterator->second->agentId +
-                              "\",\"elapsed\":"  + std::to_string(time(nullptr) - agentMap_iterator->second->lastHeartbeat) + "}").c_str());
-                    dead_agents[agentMap_iterator->second->agentId] = time(nullptr);
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, agentMap_iterator->first, nullptr);
-                    close(agentMap_iterator->first);
-                    agentMap_iterator = agentStreamMap.erase(agentMap_iterator);
-                }
-                else
-                {
-                    ++agentMap_iterator;
-                }
-            }
+            check_heartbeat_timeouts(epoll_fd, agentStreamMap, dead_agents);
 
             for (auto dead_agent_iterator = dead_agents.begin(); dead_agent_iterator != dead_agents.end(); )
             {
@@ -92,47 +78,34 @@ int main() {
                     restart_agent_container(dead_agent_iterator->first);
                     dead_agent_iterator = dead_agents.erase(dead_agent_iterator);
                 }
-                else { ++dead_agent_iterator; }
+                else
+                {
+                    dead_agent_iterator = std::next(dead_agent_iterator);
+                }
             }
 
-            for (const auto& entry : agentStreamMap)
+            for (const auto& agentStreamMap_entry : agentStreamMap)
             {
-                if (entry.second->group.empty()) continue;
-                const std::string& g    = entry.second->group;
-                std::string        mode = policyEngine.evaluate(g, calcGroupAvgLoad(g, agentStreamMap));
+                if (agentStreamMap_entry.second->group.empty()) 
+                    continue;
+                const std::string& group = agentStreamMap_entry.second->group;
+                const std::string  mode  = policyEngine.evaluate(group, calcGroupAvgLoad(group, agentStreamMap));
                 if (!mode.empty())
-                    broadcast_set_mode(g, mode, agentStreamMap, tcpProtocolCodec);
+                {
+                    broadcast_set_mode(group, mode, agentStreamMap, tcpProtocolCodec);
+                }
+                    
             }
             continue;
         }
 
-        for (int i = 0; i < num_events; ++i) {
-            int event_fd = events[i].data.fd;
+        for (int i = 0; i < num_events; ++i) 
+        {
+            const int event_fd = events[i].data.fd;
 
-            // 새 연결
             if (event_fd == server_fd)
             {
-                int client_fd = accept(server_fd, nullptr, nullptr);
-                if (client_fd < 0)
-                {
-                    continue;
-                }
-
-                sv::set_nonblocking(client_fd);
-
-                struct epoll_event client_event{};
-                client_event.events  = EPOLLIN | EPOLLET;
-                client_event.data.fd = client_fd;
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_event) < 0)
-                {
-                    close(client_fd); continue;
-                }
-
-                 // 연결당 AgentStream 1개 생성 (ControllerFrameHandler + SvStreamBuffer)
-                agentStreamMap[client_fd] = std::make_unique<AgentStream>(client_fd, tcpProtocolCodec);
-
-                LOG_INFO("Controller", "Agent connected",
-                         ("{\"fd\":" + std::to_string(client_fd) + "}").c_str());
+                handle_new_connection(server_fd, epoll_fd, agentStreamMap, tcpProtocolCodec);
                 continue;
             }
 
@@ -149,7 +122,8 @@ int main() {
                 }
                 else if (bytes_received == 0)
                 {
-                    is_alive = false; break;
+                    is_alive = false; 
+                    break;
                 }
                 else if (errno == EAGAIN || errno == EWOULDBLOCK)
                 {
@@ -157,7 +131,8 @@ int main() {
                 }
                 else
                 {
-                    is_alive = false; break;
+                    is_alive = false; 
+                    break;
                 }
             }
 
@@ -170,10 +145,11 @@ int main() {
                 const std::string& group = agentStreamMap[event_fd]->group;
                 if (!group.empty())
                 {
-                    double      avgLoad = calcGroupAvgLoad(group, agentStreamMap);
-                    std::string mode    = policyEngine.evaluate(group, avgLoad);
+                    const std::string mode = policyEngine.evaluate(group, calcGroupAvgLoad(group, agentStreamMap));
                     if (!mode.empty())
+                    {
                         broadcast_set_mode(group, mode, agentStreamMap, tcpProtocolCodec);
+                    }
                 }
             }
         }

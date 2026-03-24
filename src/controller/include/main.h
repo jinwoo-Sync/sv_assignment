@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <ctime>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -143,48 +144,68 @@ struct AgentStream {
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
+// ── 그룹 평균 부하 계산 ──────────────────────────────────────────
 double calcGroupAvgLoad(const std::string& group,
-                               const std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap)
+                        const std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap)
 {
     double sum   = 0.0;
     int    count = 0;
-    for (const auto& agentEntry : agentStreamMap)
+    for (const auto& agentStreamMap_entry : agentStreamMap)
     {
-        if (agentEntry.second->group != group)
-            continue;
-        sum += agentEntry.second->cpu_percent
-             + agentEntry.second->temperature
-             + agentEntry.second->mem_percent;
+        if (agentStreamMap_entry.second->group != group) continue;
+        sum += agentStreamMap_entry.second->cpu_percent
+             + agentStreamMap_entry.second->temperature
+             + agentStreamMap_entry.second->mem_percent;
         ++count;
     }
     return (count > 0) ? (sum / (3.0 * count)) : 0.0;
 }
 
+// ── 그룹 내 전체 agent에 CMD_SET_MODE 전송 ──────────────────────
 void broadcast_set_mode(const std::string& group, const std::string& mode,
-                               std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
-                               sv::TcpProtocol& protocol)
+                        const std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                        sv::TcpProtocol& protocol)
 {
-    for (auto& agentEntry : agentStreamMap)
+    for (const auto& agentStreamMap_entry : agentStreamMap)
     {
-        if (agentEntry.second->group != group)
-            continue;
+        if (agentStreamMap_entry.second->group != group) continue;
 
-        const int fd = agentEntry.first;
+        const int fd = agentStreamMap_entry.first;
         bool ok = sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
                                  "{\"mode\":\"" + mode + "\"}");
         if (!ok)
-        {
             LOG_WARN("Controller", "CMD_SET_MODE send failed",
                      ("{\"fd\":" + std::to_string(fd) + ",\"group\":\"" + group + "\"}").c_str());
+    }
+}
+
+// ── 헬스체크 타임아웃 감지 → dead_agents 등록 ────────────────────
+void check_heartbeat_timeouts(int epoll_fd,
+                               std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                               std::unordered_map<std::string, time_t>& dead_agents)
+{
+    for (auto agentMap_iterator = agentStreamMap.begin(); agentMap_iterator != agentStreamMap.end(); )
+    {
+        if (!agentMap_iterator->second->agentId.empty() &&
+            (time(nullptr) - agentMap_iterator->second->lastHeartbeat) >= 3)
+        {
+            LOG_WARN("Controller", "Heartbeat timeout",
+                     ("{\"fd\":"         + std::to_string(agentMap_iterator->first) +
+                      ",\"agent_id\":\"" + agentMap_iterator->second->agentId +
+                      "\",\"elapsed\":"  + std::to_string(time(nullptr) - agentMap_iterator->second->lastHeartbeat) + "}").c_str());
+            dead_agents[agentMap_iterator->second->agentId] = time(nullptr);
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, agentMap_iterator->first, nullptr);
+            close(agentMap_iterator->first);
+            agentMap_iterator = agentStreamMap.erase(agentMap_iterator);
+        }
+        else
+        {
+            agentMap_iterator = std::next(agentMap_iterator);
         }
     }
 }
 
-bool checkHeartbeat(const AgentStream& agent)
-{
-    return (time(nullptr) - agent.lastHeartbeat) < 3;
-}
-
+// ── dead agent 컨테이너 재시작 요청 ─────────────────────────────
 void restart_agent_container(const std::string& agentId)
 {
     const std::string container = "sv-assignment-" + agentId;
@@ -193,12 +214,14 @@ void restart_agent_container(const std::string& agentId)
     system(("docker restart " + container).c_str());
 }
 
+// ── 연결 종료 및 agentStreamMap 정리 ────────────────────────────
 void close_connection(int fd, int epoll_fd,
-                             std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
-                             std::unordered_map<std::string, time_t>& dead_agents)
+                      std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                      std::unordered_map<std::string, time_t>& dead_agents)
 {
     auto agentMap_iterator = agentStreamMap.find(fd);
-    std::string agentId = (agentMap_iterator != agentStreamMap.end()) ? agentMap_iterator->second->agentId : "";
+    const std::string agentId = (agentMap_iterator != agentStreamMap.end())
+                                ? agentMap_iterator->second->agentId : "";
 
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
@@ -208,4 +231,27 @@ void close_connection(int fd, int epoll_fd,
 
     if (!agentId.empty())
         dead_agents[agentId] = time(nullptr);
+}
+
+// ── 신규 연결 수락 및 epoll 등록 ────────────────────────────────
+void handle_new_connection(int server_fd, int epoll_fd,
+                            std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                            sv::TcpProtocol& protocol)
+{
+    int client_fd = accept(server_fd, nullptr, nullptr);
+    if (client_fd < 0) return;
+
+    sv::set_nonblocking(client_fd);
+
+    struct epoll_event client_event{};
+    client_event.events  = EPOLLIN | EPOLLET;
+    client_event.data.fd = client_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_event) < 0)
+    {
+        close(client_fd); return;
+    }
+
+    agentStreamMap[client_fd] = std::make_unique<AgentStream>(client_fd, protocol);
+    LOG_INFO("Controller", "Agent connected",
+             ("{\"fd\":" + std::to_string(client_fd) + "}").c_str());
 }
