@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
     {
         int num_events = epoll_wait(epoll_fd, events, 10, 100);
 
-        for (int i = 0; i < num_events; ++i)
+        for (int i = 0; i < num_events; i++)
         {
             if ((events[i].events & EPOLLOUT) && !connected)
             {

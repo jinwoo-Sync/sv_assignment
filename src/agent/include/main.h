@@ -48,9 +48,9 @@ public:
                               "{\"agent_id\":\"" + m_agentId + "\",\"mode\":\"" + mode + "\"}");
     }
 
-    bool sendNack(uint32_t seq) {
+    bool sendNack(uint32_t seq, const std::string& reason = "retry") {
         return sv::send_frame(m_sock, m_protocol, sv::MessageType::NACK, seq,
-                              "{\"agent_id\":\"" + m_agentId + "\"}");
+                              "{\"agent_id\":\"" + m_agentId + "\",\"reason\":\"" + reason + "\"}");
     }
 
     bool sendHello() {
@@ -134,7 +134,7 @@ protected:
         if (fault && std::string(fault) == "nack")
         {
             LOG_WARN("Agent", "NACK injected", ("{\"agent_id\":\"" + m_agentId + "\"}").c_str());
-            m_sender.sendNack(frame.seq);
+            m_sender.sendNack(frame.seq, "always");
             return;
         }
         const std::string payload(frame.payload.begin(), frame.payload.end());

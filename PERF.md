@@ -50,7 +50,7 @@ docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsag
 | 모듈 | 항목 | 케이스 수 | 결과 |
 |------|------|-----------|------|
 | Logger | 싱글턴, 레벨 필터링, 매크로 안정성 | 3 | PASS |
-| PolicyEngine | safe 임계치 초과, 동일 모드 재진입, dead zone 유지, 모드 전환 | 4 | - |
+| PolicyEngine | safe 임계치 초과, 동일 모드 재진입, 임계 구간 모드 유지, 모드 전환 | 4 | - |
 | CMD_SET_MODE ACK | encode/decode 왕복, ACK seq 보존 | 3 | PASS |
 
 ![Logger gtest 결과](asset/logger_gtest결과.png)

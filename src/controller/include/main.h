@@ -55,11 +55,12 @@ public:
                            std::string& agentId, std::string& group,
                            double& cpu_percent, double& temperature, double& mem_percent,
                            time_t& lastHeartbeat, std::string& last_mode,
-                           int& nack_state)
+                           int& nack_state, time_t& nack_send_after, uint32_t& last_cmd_seq)
         : m_protocol(protocol), m_agentId(agentId), m_group(group)
         , m_cpu_percent(cpu_percent), m_temperature(temperature), m_mem_percent(mem_percent)
         , m_lastHeartbeat(lastHeartbeat), m_last_mode(last_mode)
-        , m_nack_state(nack_state)
+        , m_nack_state(nack_state), m_nack_send_after(nack_send_after)
+        , m_last_cmd_seq(last_cmd_seq)
     {
         m_fd = fd;
     }
@@ -110,20 +111,38 @@ protected:
     }
 
     void onNack(const sv::Frame& frame) override {
+        // 현재 cmd와 무관한 NACK → 무시
+        if (frame.seq != m_last_cmd_seq)
+            return;
+
+        const std::string payload(frame.payload.begin(), frame.payload.end());
+        const std::string reason  = extract_str(payload, "reason");
+
+        // always → retry 없이 즉시 30s 대기
+        if (reason == "always")
+        {
+            m_nack_state      = NACK_IDLE;
+            m_nack_send_after = time(nullptr) + 30;
+            LOG_ERROR("Controller", "NACK always: blocked 30s",
+                      ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId +
+                       "\",\"last_mode\":\"" + m_last_mode + "\"}").c_str());
+            return;
+        }
+
         if (m_nack_state == NACK_SENT)
         {
-            // retry 이미 보냈는데 또 NACK → fallback
-            m_nack_state = NACK_IDLE;
-            LOG_ERROR("Controller", "NACK fallback: giving up",
+            m_nack_state      = NACK_IDLE;
+            m_nack_send_after = time(nullptr) + 30;
+            LOG_ERROR("Controller", "NACK fallback: giving up, blocked 30s",
                       ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId +
                        "\",\"last_mode\":\"" + m_last_mode + "\"}").c_str());
         }
         else if (m_nack_state == NACK_IDLE)
         {
-            // 첫 NACK — 1s tick에서 retry 전송 예약
             m_nack_state = NACK_WAIT;
             LOG_WARN("Controller", "NACK received, will retry in 1s",
-                     ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId + "\"}").c_str());
+                     ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId +
+                      "\",\"reason\":\"" + reason + "\"}").c_str());
         }
     }
 
@@ -144,6 +163,8 @@ private:
     time_t&          m_lastHeartbeat;
     std::string&     m_last_mode;
     int&             m_nack_state;
+    time_t&          m_nack_send_after;
+    uint32_t&        m_last_cmd_seq;
 };
 
 // ── AgentStream ──────────────────────────────────────────────────
@@ -154,16 +175,18 @@ struct AgentStream {
     double                                temperature   = 0.0;
     double                                mem_percent   = 0.0;
     time_t                                lastHeartbeat = time(nullptr);
-    bool                                  isUnhealthy   = false;
+    bool                                  isUnhealthy          = false;
     std::string                           last_mode;
-    int                                   nack_state    = NACK_IDLE;
+    int                                   nack_state           = NACK_IDLE;
+    time_t                                nack_send_after  = 0;
+    uint32_t                              last_cmd_seq         = 0;
     ControllerFrameHandler                handler;
     sv::SvStreamBuffer                    stream;
 
     AgentStream(int fd, sv::TcpProtocol& protocol)
         : handler(fd, protocol, agentId, group,
                   cpu_percent, temperature, mem_percent, lastHeartbeat, last_mode,
-                  nack_state)
+                  nack_state, nack_send_after, last_cmd_seq)
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
@@ -179,7 +202,7 @@ double calcGroupAvgLoad(const std::string& group,
         sum += agentStreamMap_entry.second->cpu_percent
              + agentStreamMap_entry.second->temperature
              + agentStreamMap_entry.second->mem_percent;
-        ++count;
+        count += 1;
     }
     return (count > 0) ? (sum / (3.0 * count)) : 0.0;
 }
@@ -193,12 +216,18 @@ void broadcast_set_mode(const std::string& group, const std::string& mode,
     {
         if (agentStreamMap_entry.second->group != group) continue;
 
-        const int fd = agentStreamMap_entry.first;
-        if (sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
+        // 30s 대기 중인 agent 스킵
+        if (time(nullptr) < agentStreamMap_entry.second->nack_send_after)
+            continue;
+
+        const int      fd  = agentStreamMap_entry.first;
+        agentStreamMap_entry.second->last_cmd_seq += 1;
+        const uint32_t seq = agentStreamMap_entry.second->last_cmd_seq;
+        if (sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, seq,
                            "{\"mode\":\"" + mode + "\"}"))
         {
-            agentStreamMap_entry.second->last_mode   = mode;
-            agentStreamMap_entry.second->nack_state  = NACK_IDLE;
+            agentStreamMap_entry.second->last_mode  = mode;
+            agentStreamMap_entry.second->nack_state = NACK_IDLE;
         }
         else
             LOG_WARN("Controller", "CMD_SET_MODE send failed",
@@ -214,11 +243,13 @@ void process_nack_retries(std::unordered_map<int, std::unique_ptr<AgentStream>>&
     {
         if (entry.second->nack_state != NACK_WAIT) continue;
         entry.second->nack_state = NACK_SENT;
-        const int fd = entry.first;
+        const int      fd  = entry.first;
+        entry.second->last_cmd_seq += 1;
+        const uint32_t seq = entry.second->last_cmd_seq;
         LOG_WARN("Controller", "NACK retry: resending CMD_SET_MODE",
                  ("{\"fd\":" + std::to_string(fd) + ",\"agent_id\":\"" + entry.second->agentId +
                   "\",\"mode\":\"" + entry.second->last_mode + "\"}").c_str());
-        sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
+        sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, seq,
                        "{\"mode\":\"" + entry.second->last_mode + "\"}");
     }
 }

@@ -117,7 +117,7 @@ int main()
             continue;
         }
 
-        for (int i = 0; i < num_events; ++i) 
+        for (int i = 0; i < num_events; i++)
         {
             const int event_fd = events[i].data.fd;
 
