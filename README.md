@@ -170,6 +170,13 @@ sudo apt-get install -y build-essential cmake pkg-config nlohmann-json3-dev git 
 ## 빌드
 
 ```bash
+git clone --recurse-submodules https://github.com/jinwoo-Sync/sv_assignment
+```
+
+> `src/libs`가 submodule로 분리되어 있어 `--recurse-submodules` 없이 클론하면 빌드 시 헤더를 찾지 못합니다.
+> 이미 클론한 경우: `git submodule update --init --recursive`
+
+```bash
 ./build.sh Debug    # → bin/Debug/   (단위 테스트 포함)
 ./build.sh Release  # → bin/Release/ (Docker 배포용)
 ```
