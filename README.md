@@ -13,7 +13,7 @@ sudo apt-get install -y build-essential cmake pkg-config nlohmann-json3-dev git 
 ```bash
 git clone --recurse-submodules https://github.com/jinwoo-Sync/sv_assignment
 cd sv_assignment
-./build.sh Release
+bash scripts/build.sh --release
 ```
 
 > `src/libs`가 submodule로 분리되어 있어 `--recurse-submodules` 없이 클론하면 빌드 시 헤더를 찾지 못합니다.
@@ -31,9 +31,9 @@ cmake --build build -- -j$(nproc)
 ## 실행
 
 ```bash
-./run_init_step.sh   # Controller 1 + agents.json 구성대로 기동
-./run_logs.sh        # 로그 확인
-./run_stop.sh        # 종료
+bash scripts/run_init_step.sh   # Controller 1 + agents.json 구성대로 기동
+bash scripts/run_logs.sh        # 로그 확인
+bash scripts/run_stop.sh        # 종료
 ```
 
 ---
@@ -42,7 +42,7 @@ cmake --build build -- -j$(nproc)
 
 ```bash
 # 단위 테스트
-./build.sh Debug
+bash scripts/build.sh --debug
 ctest --test-dir build --output-on-failure
 
 # 누수·UB 없음 증빙 (ASAN + UBSAN, 로그: asset/asan_ubsan.log)
@@ -59,7 +59,7 @@ bash tests/integration/test_scenarios.sh
 bash tests/integration/test_scenario3.sh
 
 # 스케일 통합 테스트
-./test_epoll_scale.sh 50
+bash scripts/perf_bench.sh 50
 ```
 
 ---
@@ -88,28 +88,28 @@ sv_assignment/
 ### 빠른 시작 
 
 ```bash
-./run_init_step.sh   # Controller 1 + agents.json 구성대로 기동
+bash scripts/run_init_step.sh   # Controller 1 + agents.json 구성대로 기동
 ```
 
 별도 터미널에서:
 
 ```bash
 # 1. 헬스체크 — agent 연결 · HEARTBEAT/STATE 수신 확인
-./run_logs.sh | grep -E "Agent connected|HELLO|HEARTBEAT|STATE"
+bash scripts/run_logs.sh | grep -E "Agent connected|HELLO|HEARTBEAT|STATE"
 
 # 2. 명령 브로드캐스트 — CMD_SET_MODE 전송 · ACK 수신 확인
-./run_logs.sh | grep -E "CMD_SET_MODE|ACK"
+bash scripts/run_logs.sh | grep -E "CMD_SET_MODE|ACK"
 
 # 3. 정책 발동 — avgLoad 임계치 초과 → 모드 전환 확인
 python3 scripts/fault_injector.py load
-./run_logs.sh | grep -E "mode change|hot reload"
+bash scripts/run_logs.sh | grep -E "mode change|hot reload"
 ```
 
 ### 시나리오 1 — 정상 플로우
 
 ```bash
-./run_init_step.sh
-./run_logs.sh | grep -E "Agent connected|HELLO|HEARTBEAT|STATE|ACK"
+bash scripts/run_init_step.sh
+bash scripts/run_logs.sh | grep -E "Agent connected|HELLO|HEARTBEAT|STATE|ACK"
 ```
 
 ### 시나리오 2 — 부분 실패 (NACK)
@@ -118,8 +118,8 @@ imu-1이 CMD_SET_MODE를 항상 거부하는 상태로 기동됨 (`docker-compos
 PolicyEngine이 모드 전환을 감지하면 imu 그룹에 CMD_SET_MODE 전송 → imu가 NACK → 1s 후 retry → fallback.
 
 ```bash
-./run_init_step.sh
-./run_logs.sh | grep -E "NACK|fallback"
+bash scripts/run_init_step.sh
+bash scripts/run_logs.sh | grep -E "NACK|fallback"
 ```
 
 ### 시나리오 3 — 장애/복구
@@ -127,25 +127,25 @@ PolicyEngine이 모드 전환을 감지하면 imu 그룹에 CMD_SET_MODE 전송 
 agent 컨테이너를 강제 종료하면 controller가 3s 후 Unhealthy 판정, 10s 초과 시 docker restart.
 
 ```bash
-./run_init_step.sh
+bash scripts/run_init_step.sh
 docker stop sv-agent-imu-1
-./run_logs.sh | grep -E "Unhealthy|Restarting|Recovered|Agent connected"
+bash scripts/run_logs.sh | grep -E "Unhealthy|Restarting|Recovered|Agent connected"
 ```
 
 ### 시나리오 4 — 정책 발동
 
 ```bash
-./run_init_step.sh
+bash scripts/run_init_step.sh
 python3 scripts/fault_injector.py load   # safe 임계값 5로 낮춤 → 20초 후 원복
-./run_logs.sh | grep -E "mode change|hot reload"
+bash scripts/run_logs.sh | grep -E "mode change|hot reload"
 ```
 
 ### 시나리오 5 — 핫-리로드
 
 ```bash
-./run_init_step.sh
+bash scripts/run_init_step.sh
 # configs/policy.json 수동 편집 후
-./run_logs.sh | grep -E "hot reload"
+bash scripts/run_logs.sh | grep -E "hot reload"
 ```
 
 ---
