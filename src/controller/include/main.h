@@ -45,16 +45,21 @@ double extract_num(const std::string& json, const std::string& key)
     catch (...) { return 0.0; }
 }
 
+// ── NackState ────────────────────────────────────────────────────
+enum NackState { NACK_IDLE = 0, NACK_WAIT = 1, NACK_SENT = 2 };
+
 // ── ControllerFrameHandler ───────────────────────────────────────
 class ControllerFrameHandler : public sv::IFrameHandler {
 public:
     ControllerFrameHandler(int fd, sv::TcpProtocol& protocol,
                            std::string& agentId, std::string& group,
                            double& cpu_percent, double& temperature, double& mem_percent,
-                           time_t& lastHeartbeat, std::string& last_mode)
+                           time_t& lastHeartbeat, std::string& last_mode,
+                           int& nack_state)
         : m_protocol(protocol), m_agentId(agentId), m_group(group)
         , m_cpu_percent(cpu_percent), m_temperature(temperature), m_mem_percent(mem_percent)
         , m_lastHeartbeat(lastHeartbeat), m_last_mode(last_mode)
+        , m_nack_state(nack_state)
     {
         m_fd = fd;
     }
@@ -105,11 +110,21 @@ protected:
     }
 
     void onNack(const sv::Frame& frame) override {
-        LOG_WARN("Controller", "NACK received",
-                 ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId + "\"}").c_str());
-        LOG_ERROR("Controller", "NACK fallback: giving up",
-                  ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId +
-                   "\",\"last_mode\":\"" + m_last_mode + "\"}").c_str());
+        if (m_nack_state == NACK_SENT)
+        {
+            // retry 이미 보냈는데 또 NACK → fallback
+            m_nack_state = NACK_IDLE;
+            LOG_ERROR("Controller", "NACK fallback: giving up",
+                      ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId +
+                       "\",\"last_mode\":\"" + m_last_mode + "\"}").c_str());
+        }
+        else if (m_nack_state == NACK_IDLE)
+        {
+            // 첫 NACK — 1s tick에서 retry 전송 예약
+            m_nack_state = NACK_WAIT;
+            LOG_WARN("Controller", "NACK received, will retry in 1s",
+                     ("{\"fd\":" + std::to_string(m_fd) + ",\"agent_id\":\"" + m_agentId + "\"}").c_str());
+        }
     }
 
     void onError(const sv::Frame& frame) override {
@@ -128,6 +143,7 @@ private:
     double&          m_mem_percent;
     time_t&          m_lastHeartbeat;
     std::string&     m_last_mode;
+    int&             m_nack_state;
 };
 
 // ── AgentStream ──────────────────────────────────────────────────
@@ -140,12 +156,14 @@ struct AgentStream {
     time_t                                lastHeartbeat = time(nullptr);
     bool                                  isUnhealthy   = false;
     std::string                           last_mode;
+    int                                   nack_state    = NACK_IDLE;
     ControllerFrameHandler                handler;
     sv::SvStreamBuffer                    stream;
 
     AgentStream(int fd, sv::TcpProtocol& protocol)
         : handler(fd, protocol, agentId, group,
-                  cpu_percent, temperature, mem_percent, lastHeartbeat, last_mode)
+                  cpu_percent, temperature, mem_percent, lastHeartbeat, last_mode,
+                  nack_state)
         , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
 };
 
@@ -178,10 +196,30 @@ void broadcast_set_mode(const std::string& group, const std::string& mode,
         const int fd = agentStreamMap_entry.first;
         if (sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
                            "{\"mode\":\"" + mode + "\"}"))
-            agentStreamMap_entry.second->last_mode = mode;
+        {
+            agentStreamMap_entry.second->last_mode   = mode;
+            agentStreamMap_entry.second->nack_state  = NACK_IDLE;
+        }
         else
             LOG_WARN("Controller", "CMD_SET_MODE send failed",
                      ("{\"fd\":" + std::to_string(fd) + ",\"group\":\"" + group + "\"}").c_str());
+    }
+}
+
+// ── NACK retry: 1초 tick에서 호출 — 대기 중인 agent에 CMD_SET_MODE 재전송 ──
+void process_nack_retries(std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
+                          sv::TcpProtocol& protocol)
+{
+    for (auto& entry : agentStreamMap)
+    {
+        if (entry.second->nack_state != NACK_WAIT) continue;
+        entry.second->nack_state = NACK_SENT;
+        const int fd = entry.first;
+        LOG_WARN("Controller", "NACK retry: resending CMD_SET_MODE",
+                 ("{\"fd\":" + std::to_string(fd) + ",\"agent_id\":\"" + entry.second->agentId +
+                  "\",\"mode\":\"" + entry.second->last_mode + "\"}").c_str());
+        sv::send_frame(fd, protocol, sv::MessageType::CMD_SET_MODE, 0,
+                       "{\"mode\":\"" + entry.second->last_mode + "\"}");
     }
 }
 

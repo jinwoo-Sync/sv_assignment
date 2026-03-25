@@ -71,7 +71,8 @@ int main()
             break;
         }
 
-        // 1초 마다 file 변경 확인 - num_events==0 분기 한정으로 인한 미발동 버그 수정
+        // 1초 마다 실행 — hot-reload / NACK retry
+        // num_events==0 한정이면 heartbeat 때문에 거의 안 돌아서 여기서 처리
         if (time(nullptr) - last_mtime_check >= 1)
         {
             last_mtime_check = time(nullptr);
@@ -80,6 +81,7 @@ int main()
                 LOG_INFO("Controller", "hot reload", "{\"path\":\"configs/policy.json\"}");
                 policyEngine.reload();
             }
+            process_nack_retries(agentStreamMap, tcpProtocolCodec);
         }
 
         // ── 1초 타임아웃: 헬스체크 / dead agent 재시작 / 정책 평가 ──
