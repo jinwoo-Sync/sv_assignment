@@ -154,4 +154,128 @@ enum NackState { NACK_IDLE = 0, NACK_WAIT = 1, NACK_SENT = 2 };
 
 ---
 
-현재 회사에서는 통합 테스트를 사람이 직접 눈으로 확인하는 방식으로만 진행해왔는데, 이번 과제를 통해 단위 테스트로 개별 모듈을 검증한 뒤 통합 테스트 스크립트로 전체 시나리오를 자동으로 검증하는 흐름을 직접 구성해봤습니다. 수동으로 하던 검증을 스크립트로 자동화하면서 테스트가 재현 가능하고 일관성 있게 실행된다는 점이 과제를 수행하면서 정말 좋게 느껴졌습니다.
+---
+
+## 설계 과정 기록
+
+### 1단계 — Docker 위에서 단일 agent · 단일 controller 연결 확인
+
+가장 먼저 한 것은 "일단 기초적인 통신 시스템 구축"이었습니다. 요구사항 문서를 보고 폴더 구조를 잡은 뒤, Docker Compose로 agent 컨테이너 하나와 controller 컨테이너 하나를 띄워 TCP 연결이 맺어지는지 확인했습니다. 이 시점에는 프로토콜이나 클래스 설계가 없었고, 소켓 연결이 되고 데이터가 흐르는 것만 검증하는 것이 목표였습니다.
+
+동시에 `src/libs`를 git submodule로 분리했습니다. 이후 controller·agent가 공통으로 쓸 라이브러리(logger, memory_pool, 프로토콜 코덱 등)를 libs에 쌓고, 메인 레포는 빌드·런타임 로직만 담는 구조를 처음부터 의도했습니다.
+
+```
+f27582a — 도커 세팅과 agent-client 연결 확인 완료 & git submodule 등록
+```
+
+---
+
+### 2단계 — 클래스 설계 (libs 내부 구조 확립)
+
+연결이 확인된 뒤 본격적으로 libs 내부를 설계했습니다.
+
+**Logger**
+회사에서 써온 C# 스타일 singleton 패턴을 C++로 옮겼습니다. 가변인자 매크로로 필드를 자유롭게 붙이되, 출력 포맷은 항상 일정한 틀을 유지하도록 `LOG_INFO` / `LOG_ERROR` 매크로를 정리했습니다. 로거 초기화 순서 문제(소켓 생성 실패 시 로거를 못 쓰는 버그)가 나중에 발견되어 init을 소켓 생성 전으로 이동했습니다.
+
+**MemoryPool**
+첫 구현이 잘못되어 전면 재구현했습니다. block이라는 표현이 buffer와 혼동되는 것도 발견해 변수명을 buffer로 통일했습니다. 아쉽게도 처음부터 payload 가변 길이를 염두에 두고 MemoryPool을 설계했다면 요구사항의 "자체 메모리 풀 또는 커스텀 allocator를 최소 1개 모듈에서 사용(예: 메시지 객체 풀링)"에 온전히 대응할 수 있었을 것입니다. 다만 전체 프로젝트를 5일(4일 개발 + 1일 문서 정리)로 계획하는 과정에서 딜레이가 예상되었고, 회사 프로젝트를 진행하듯 해당 기능을 scope out하여 나머지 기능의 1차 완성에 집중하는 방향을 선택했습니다.
+
+**TcpProtocol / IProtocol**
+요구사항에 명시된 대로 length-prefix + Magic + CRC32 구조의 바이너리 프로토콜을 구현했습니다. 초기에는 `TcpProtocol` 구체 클래스에 직접 의존했는데, 이후 `IProtocol` 인터페이스를 추출하여 DIP를 적용했습니다. libs가 구현체를 모르고 인터페이스만 바라보게 함으로써 테스트 시 mock으로 교체할 수 있을 것으로 예상됩니다.
+
+**SvStreamBuffer · IFrameHandler**
+수신 스트림을 Frame 단위로 조립한 뒤 상위 로직을 호출하는 구조가 필요했습니다. 라이브러리가 애플리케이션 코드를 직접 참조하면 의존 방향이 역전되므로, 함수 포인터 + `void*` 콜백 패턴으로 분리했습니다.
+
+**단위 테스트**
+gTest를 붙여 logger·memory_pool·PolicyEngine·CMD_SET_MODE ACK 각각을 단독으로 검증할 수 있도록 구성했습니다. submodule 위주의 전체빌드·단독빌드를 CMake flag로 구분하여 libs만 독립 빌드·테스트가 가능하게 만들었습니다.
+
+```
+e3f7963 — gTest logger / memory_pool 단위 테스트
+c08b29c — TcpProtocol 클래스 계층 분리 및 전면 개편
+c122d3d — 단위 테스트용 레플리카 submodule 구조 + 빌드 flag 분리
+1609cc1 — IProtocol DIP 적용 (libs)
+```
+
+---
+
+### 3단계 — 세부 통신 시스템 구축
+
+libs 기반이 잡히자 controller·agent 간 실제 통신 흐름을 붙였습니다.
+
+**epoll 기반 이벤트 루프**
+50개 agent를 스레드 없이 처리하기 위해 epoll ET 모드를 선택했습니다. `poll`은 매번 전체 fd를 스캔하지만, epoll은 이벤트가 발생한 fd만 반환하기 때문입니다.
+
+**AgentStream struct**
+`broadcast_set_mode()` 구현 중 fd는 있는데 그 agent의 group을 알 수 없는 문제가 생겼습니다. group은 HELLO를 파싱한 handler 내부에만 있고, 외부에서 읽을 방법이 없었습니다.
+
+람다나 `std::function`을 쓰면 콜백 안에서 `agentId`·`group`을 캡처해 해결할 수 있지만 두 가지 모두 사용하지 않습니다. `SvStreamBuffer` 콜백 타입이 `void (*)(const Frame*, void*)` 순수 C 함수 포인터라 `static` 멤버 함수 + `void*` pUser 외에 선택지가 없었습니다.
+
+그래서 방향을 바꿨습니다. handler가 데이터를 들고 있으면 외부에서 못 읽으니, 데이터를 handler 밖 — `AgentStream` struct 필드 — 에 두고, handler 생성 시 그 필드들의 reference를 넘겼습니다. handler는 HELLO·STATE를 파싱하면 reference를 통해 struct 필드에 직접 쓰고, 외부 코드는 `agentStreamMap[fd]->group`으로 바로 읽습니다. `agentId`·`group`뿐 아니라 `cpu_percent`·`temperature`·`lastHeartbeat`·`nack_state` 등 handler가 갱신하는 모든 상태를 이 방식으로 관리합니다.
+
+`class` 대신 `struct`를 쓴 건 private할 변수가 없고 단순히 데이터를 묶는 역할이라서입니다. fd와 agent의 모든 상태를 한 struct에 묶었기 때문에 `agentStreamMap[fd]` 하나로 group, 부하, NACK 상태 등 모든 정보에 접근할 수 있고, `unique_ptr`로 관리하므로 `erase(fd)` 한 번으로 전체가 소멸됩니다.
+
+**PolicyEngine 연결**
+정책 엔진 쪽에서는 세 가지 문제를 확인했습니다. (1) `evaluate()`가 비어 있어 controller가 모드를 바꾸지 못했고, (2) `epoll_wait`를 무한 대기로 호출해 STATE 패킷이 잠시라도 끊기면 정책 평가 루프가 완전히 멈췄으며, (3) agent `onCmdSetMode()`에서 ACK를 보내지 않아 controller가 같은 SET_MODE를 반복 전송했습니다. 이 세 부분을 모두 보완해 정책 평가와 모드 전환이 끊김 없이 이뤄지도록 정리했습니다.
+
+**파일 구조 분리**
+agent-client 코드가 길어지면서 `.cpp` + `.h`로 분리했습니다.
+
+```
+654d106 — AgentStream에 agentId/group 추가 및 HELLO 파싱
+7443925 — evaluate() 완성 / epoll_wait 1000ms / policy.json 3-mode
+077f11e — agent disconnect → docker restart
+```
+
+---
+
+### 4단계 — 요구사항에 맞는 시나리오 구축
+
+통신 흐름이 완성된 뒤 요구사항의 4가지 시나리오를 하나씩 구현·검증했습니다.
+
+**시나리오 1 — 정상 모드 전환**
+5개 그룹을 `--scale`로 띄우고 그룹별 평균 부하에 따라 모드 전환을 확인했습니다. `agents.json`으로 그룹 구성을 선언적으로 관리하고, 기동 스크립트가 이를 읽어 `--scale` 파라미터를 자동 생성합니다.
+
+**시나리오 2 — NACK 부분 실패 + fallback**
+`FAULT_MODE=nack` agent가 항상 NACK을 반환하도록 fault injector를 만들었습니다. `onNack()`에서 즉시 재전송하면 recv drain 루프 안에서 무한루프가 발생해, 재전송 로직을 1s tick 쪽으로 옮겼습니다. NACK 상태는 bool 2개에서 `NackState` enum으로 교체하고, `reason="always"` 또는 retry 후 재실패 시 즉시 30s backoff도 추가했습니다. retry 시 seq를 올려 재전송하는데, 이전 CMD의 NACK이 늦게 도착하면 현재 CMD의 NACK으로 잘못 처리돼 엉뚱한 backoff로 빠질 수 있어 seq가 다르면 버리도록 했습니다.
+
+일반 NACK은 "지금 당장은 못 받겠다"는 뜻이라 1s 후 retry가 의미 있습니다. 반면 `reason="always"`는 agent가 "앞으로도 계속 거부할 것"을 명시적으로 알려주는 것이라 retry 자체가 낭비입니다. controller가 이를 받으면 retry를 건너뛰고 바로 30s backoff로 넘어갑니다.
+
+```
+일반 NACK:  CMD → NACK → 1s 대기 → retry → NACK → 30s backoff
+always:     CMD → NACK(always) → 즉시 30s backoff
+```
+
+**시나리오 3 — 장애 agent 자동 재시작**
+agent가 죽으면 스스로 복구할 수 없으니 controller가 watchdog 역할을 맡았습니다. heartbeat 10s 타임아웃 감지 후 `docker restart`로 해당 컨테이너를 재기동합니다. 테스트 중 `docker compose kill imu-1`이 조용히 무시되는 버그(서비스 이름 vs 컨테이너 이름 혼동)와, `dead_agents` 재시작 루프를 `num_events == 0` 블록에 두어 heartbeat가 오는 한 실질적으로 실행되지 않는 버그를 발견해 수정했습니다.
+
+**시나리오 4 — hot-reload**
+`mtime` 폴링으로 `policy.json` 변경을 감지해 재로드합니다. 변경 감지 누락 버그를 수정했고, `fault_injector.py`로 임계값을 조작해 모드 전환을 확인했습니다.
+
+**AGENT_ID 중복**
+헬스체크 로그에서 모든 agent ID가 `agent-1`로 찍히는 문제가 있었습니다. PID 1 fallback, YAML anchor merge 덮어쓰기, `${HOSTNAME}`이 호스트 머신 hostname인 것 세 가지가 겹친 원인이었고, `COMPOSE_SERVICE_INDEX`로 해결했습니다.
+
+```
+41993e7 — agent 단일 서비스 → 5그룹 구성
+ed336ac — AGENT_ID 중복 수정 (COMPOSE_SERVICE_INDEX)
+8f8f892 — policy.json 변경 감지 버그 수정 + fault_injector.py
+e0479f4 — cmd_id 매칭 / reason 파싱 / 30s backoff
+f51884a — heartbeat·dead_agents 타이머 블록 이동 (hotfix)
+```
+
+---
+
+## 미구현 항목
+
+시간 부족으로 구현하지 못한 항목들을 기록합니다.
+
+### 실패 케이스 단위 테스트
+
+현재 단위 테스트는 정상 경로(happy path)만 검증하고 있습니다. CRC32 불일치 수신, Magic 불일치로 인한 스트림 재동기화, 연결 중간에 프로세스가 죽었을 때의 partial frame 처리 등 실패 경로에 대한 테스트가 없습니다. 특히 `SvStreamBuffer`의 드레인 루프는 EAGAIN까지 읽는 구조라 경계 조건이 많은데, 이 부분을 gTest로 재현하는 케이스를 작성하지 못했습니다.
+
+### payload 가변 길이 지원
+
+현재 프로토콜은 payload 길이를 헤더의 `Length` 필드로 선언하고 있지만, 실제 payload 버퍼는 고정 크기로 잡혀 있습니다. 센서 데이터처럼 메시지마다 크기가 달라지는 경우를 제대로 다루려면 수신 시점에 `Length`를 읽은 뒤 그 크기만큼 동적으로 버퍼를 할당하는 구조가 필요합니다. 이 부분은 설계만 해두고 구현하지 못했습니다.
+
+### payload 가변 길이를 위한 MemoryPool 연동
+
+libs에 MemoryPool은 구현돼 있지만 고정 크기 할당만 지원합니다. 가변 길이 payload를 지원하는 순간 매번 `malloc`/`free`를 호출하게 되고, 크기가 제각각인 할당·해제가 반복되면 메모리 파편화가 쌓여 성능이 저하됩니다. MemoryPool을 제대로 연동하려면 payload 크기에 따라 맞는 풀을 골라 쓰는 로직이 필요한데 그 부분이 미완성입니다. 지금은 payload가 고정 크기라 문제없습니다.
