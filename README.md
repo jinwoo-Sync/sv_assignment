@@ -58,8 +58,6 @@ bash tests/integration/test_scenarios.sh
 # 시나리오 3 단독
 bash tests/integration/test_scenario3.sh
 
-# 스케일 통합 테스트
-bash scripts/perf_bench.sh 50
 ```
 
 ---
