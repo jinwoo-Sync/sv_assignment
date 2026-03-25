@@ -269,13 +269,44 @@ sv_assignment/
 
 ---
 
-## 10. 구현 단계
+## 10. NACK 처리 시퀀스 다이어그램
 
-| Phase | 내용 | 점수 |
-|-------|------|------|
-| 1 | AgentStateStore (fd, agentId, mode, lastHeartbeat, lastSeq) | 10 |
-| 2 | 헬스체크 타임아웃 (3s) + Agent 자동 재연결 (지수 백오프) | 15+15 |
-| 3 | CMD_SET_MODE 브로드캐스트 + ThresholdPolicyEngine | 10+10 |
-| 4 | Config 핫-리로드 (policy.json mtime 감시) | 10 |
-| 5 | ACK 매칭/재시도, Gap Detection, Idempotency, NACK 폴백 | 10 |
-| 6 | Graceful Shutdown + Prometheus `/metrics` | 5 |
+### A. 엉뚱한 NACK 무시 (cmd_id 매칭)
+
+CMD_SET_MODE를 보낼 때마다 `last_cmd_seq += 1`을 frame seq로 사용.
+agent는 받은 frame.seq를 그대로 NACK에 에코백하므로, 이전 명령에 대한 NACK은 seq 불일치로 무시.
+
+```mermaid
+sequenceDiagram
+    participant C as Controller
+    participant A as Agent (imu-1)
+
+    C->>A: CMD_SET_MODE seq=4
+    C->>A: CMD_SET_MODE seq=5
+    A-->>C: NACK seq=4
+    Note over C: seq(4) != last_cmd_seq(5) → 무시
+    A-->>C: NACK seq=5
+    Note over C: seq(5) == last_cmd_seq(5) → 정상 처리
+```
+
+### B. reason="always" — 즉시 30초 대기
+
+FAULT_MODE=nack agent는 `reason="always"`로 응답.
+retry 없이 바로 `nack_send_after = now + 30s`를 세팅하고,
+이후 broadcast 시 해당 agent는 30초간 전송 대상에서 제외.
+
+```mermaid
+sequenceDiagram
+    participant C as Controller
+    participant A as Agent (imu-1)
+
+    C->>A: CMD_SET_MODE seq=5
+    A-->>C: NACK seq=5, reason="always"
+    Note over C: retry 없음<br/>nack_send_after = now+30s
+    Note over C: 30초간 이 agent로 전송 스킵
+    Note over C: 30초 경과
+    C->>A: CMD_SET_MODE seq=6
+```
+
+---
+

@@ -1,0 +1,157 @@
+# DECISIONS
+
+설계/구현 중 선택 근거 및 수정 이력.
+
+---
+
+## 1. epoll 선택
+
+50개 agent를 스레드 없이 처리. `poll`은 fd 전체를 매번 스캔하므로 agent 수 증가 시 선형 저하. `epoll`은 이벤트 발생 fd만 반환하므로 연결 수와 무관하게 실제 처리 대상만 확인. ET 모드로 EAGAIN까지 드레인하는 방식 적용.
+
+---
+
+## 2. 바이너리 프로토콜 직접 설계
+
+TCP는 스트림이라 패킷 경계 없음. 메시지 끝 식별을 위한 length-prefix 필요. 손상 감지를 위해 CRC32 추가.
+
+```
+[Magic 2B][Version 1B][Type 1B][Seq 4B][Length 4B][Payload NB][CRC32 4B]
+```
+
+Magic은 스트림 중간 동기화 포인트 탐색용. Seq는 ACK 매칭 및 중복 감지용.
+
+---
+
+## 3. 함수 포인터 + void* 콜백
+
+`SvStreamBuffer`가 Frame 조립 후 상위 로직 호출 필요. 라이브러리가 구현체를 직접 참조하면 의존 방향 역전. 함수 포인터 + `void*`로 pUser에 객체 주소를 넘겨 libs와 구현부(UI/제어 로직)를 완전히 분리하는 방식은 이전부터 사용해온 패턴.
+
+`IFrameHandler::onFrame`을 `static`으로 선언한 이유는 일반 멤버함수는 `this`가 숨겨진 인자로 포함되어 함수 포인터 타입 불일치 발생. `static` 선언 후 객체를 `void*`로 전달, 내부에서 `static_cast`로 복원.
+
+```cpp
+static void onFrame(const Frame* frame, void* pUser) {
+    static_cast<IFrameHandler*>(pUser)->dispatch(*frame);
+}
+```
+
+---
+
+## 4. AgentStream struct
+
+`broadcast_set_mode()` 구현 중 문제 발생 — fd는 있는데 해당 agent가 어느 그룹인지 알 수 없는 상황. group 정보가 handler 내부에만 존재하여 외부 접근 불가. `AgentStream` struct에 `agentId`·`group` 필드를 추가하고, 생성자에서 handler에 레퍼런스로 전달하여 HELLO 수신 시 파싱 결과가 struct 필드에 바로 반영되도록 구조 변경.
+
+```cpp
+struct AgentStream {
+    std::string            agentId;
+    std::string            group;
+    ControllerFrameHandler handler;
+    sv::SvStreamBuffer     stream;
+
+    AgentStream(int fd, sv::IProtocol& protocol)
+        : handler(fd, protocol, agentId, group)   // struct 필드를 레퍼런스로 전달
+        , stream(protocol, sv::IFrameHandler::onFrame, &handler) {}
+};
+```
+
+`unique_ptr`로 관리하여 `erase(fd)` 한 번으로 전체 해제.
+
+---
+
+## 5. agentStreamMap을 unordered_map으로
+
+epoll이 fd 반환 시 O(1) 탐색 필요. fd는 커널이 프로세스 내에서 고유하게 할당하는 값이므로 키 중복 없음. `unique_ptr` 값이라 `erase` 시 자동 소멸. fd는 IP 같은 정렬 기준이 없는 식별자이므로 순서 보장이 필요한 `map` 대신 `unordered_map` 선택.
+
+---
+
+## 6. PolicyEngine 연결
+
+**문제 1** — `evaluate()`가 빈 함수라 모드 전환이 전혀 동작하지 않았음. 실제 로직은 `decide()`에만 존재.
+
+→ `evaluate()`가 결정된 모드를 `std::string`으로 반환하도록 수정, main loop에서 반환값이 있을 때만 `broadcast_set_mode()` 호출.
+
+```cpp
+std::string mode = policyEngine.evaluate(group, avgLoad);
+if (!mode.empty())
+    broadcast_set_mode(group, mode, agentStreamMap, tcpProtocolCodec);
+```
+
+**문제 2** — `epoll_wait` 타임아웃이 `-1`(무한 대기)이라 STATE 패킷이 없으면 정책 평가 진입 자체가 불가. 
+
+→ 1000ms로 변경하여 agent 패킷 유무와 무관하게 1초마다 평가 실행.
+
+**문제 3** — agent `onCmdSetMode()`에 ACK 전송 코드 없음. CMD_SET_MODE를 보내도 controller 측 로그에 ACK가 찍히지 않아 원인 확인. 
+→ `onCmdSetMode()` 내부에 ACK 전송 코드 추가.
+
+---
+
+## 7. AGENT_ID 중복 문제
+
+**문제** — 헬스체크 로그에서 모든 agent의 `agent_id`가 `agent-1`으로 동일하게 찍힘. TCP 패킷 내 ID가 중복이면 어느 agent가 타임아웃됐는지 식별 불가.
+
+**원인** — 세 가지가 겹쳤음. 첫째, 컨테이너에서 프로세스가 PID 1로 기동되어 fallback이 항상 `agent-1`. 둘째, `docker-compose.yml` anchor에 `AGENT_ID=${HOSTNAME}`을 넣었으나 각 서비스에서 `environment`를 재정의하면 anchor 전체가 덮어써짐 — YAML anchor merge는 키 단위 병합이 아님. 셋째, `${HOSTNAME}`은 컨테이너 내부 hostname이 아닌 compose 실행 시점의 호스트 머신 hostname.
+
+**해결** — Docker Compose v2.22+에서 `--scale` 복제 시 각 레플리카에 인덱스를 자동 주입하는 `COMPOSE_SERVICE_INDEX` 사용.
+
+```yaml
+- AGENT_ID=camera-${COMPOSE_SERVICE_INDEX:-1}
+```
+
+`:-1`은 단독 실행 시 fallback.
+
+---
+
+## 8. 자동 재연결 + NACK 부분 실패 대응
+
+### agent 복구를 controller에서 담당한 이유
+
+agent 프로세스가 죽으면 자기 자신이 복구 코드를 실행할 수 없음. controller가 watchdog 역할을 직접 담당 — heartbeat timeout(10s) 감지 후 Docker socket으로 해당 컨테이너 `docker restart` 요청 → agent 재기동 → HELLO 재등록.
+
+### hot-reload · dead_agents 공통 버그
+
+**문제** — `check_config_mtime()`과 `dead_agents` 재시작 루프를 `num_events == 0` 블록에 배치. `num_events == 0`은 1초 타임아웃 동안 socket 이벤트가 아예 없을 때만 진입하는 블록인데, agent HEARTBEAT가 1s마다 수신되므로 epoll은 거의 항상 `num_events > 0`으로 반환 → 두 로직이 실질적으로 실행되지 않는 버그. epoll의 `num_events == 0` 조건을 주기 타이머처럼 착각한 것이 원인.
+
+**해결** — socket 이벤트와 무관하게 주기 실행이 필요한 로직은 별도 타이머로 분리. `last_mtime_check` 1s 타이머 블록으로 이동하여 이벤트 유무와 무관하게 1s마다 실행.
+
+### NACK retry를 onNack()에서 즉시 전송하지 않은 이유
+
+**문제** — `onNack()`에서 즉시 재전송 시 recv drain 루프 내에서 imu가 즉각 NACK 응답 → 무한루프 발생.
+
+**해결** — hot-reload · dead_agents 버그와 동일하게 1s 타이머 블록으로 위임. `process_nack_retries()`를 1초 tick에서 호출하여 재전송 주기 제한.
+
+### NackState enum 선택
+
+**문제** — NACK 상태를 `nack_wait`·`nack_sent` bool 2개로 관리. 유효 조합이 3가지인데 `(true, true)`는 절대 발생하지 않아 bool 2개는 과잉.
+
+**해결** — 3-state 머신이므로 단일 enum 변수로 교체.
+
+```cpp
+enum NackState { NACK_IDLE = 0, NACK_WAIT = 1, NACK_SENT = 2 };
+```
+
+### cmd_id 매칭 — stale NACK 무시
+
+**문제** — 이전 CMD_SET_MODE에 대한 NACK이 늦게 도착하면 현재 명령의 NACK으로 잘못 처리될 가능성.
+
+**해결** — 프로토콜 Seq 필드를 활용. Seq는 어느 명령에 대한 응답인지 식별하는 용도로, CMD_SET_MODE 전송마다 `++last_cmd_seq`를 seq로 사용. agent는 받은 seq를 그대로 NACK에 담아 반환. `onNack()`에서 `frame.seq != last_cmd_seq`이면 이전 명령에 대한 NACK으로 무시.
+
+### reason="always" → 즉시 30s 대기
+
+**문제** — `reason="always"`로 거부하는 agent(FAULT_MODE=nack)는 어차피 다음 retry도 NACK을 반환. 무의미한 재전송 반복.
+
+**해결** — controller가 `reason="always"` NACK 수신 시 retry 없이 즉시 해당 agent의 `nack_send_after = now + 30s` 세팅. 이후 `broadcast_set_mode()` 호출 시 controller가 30초가 지나지 않은 agent는 전송 대상에서 제외.
+
+---
+
+## 9. 통합 테스트 — 시나리오 3 장애/복구 디버깅
+
+`tests/integration/test_scenarios.sh` 작성 중 시나리오 3에서 `Restarting` 로그 미확인 현상 발생.
+
+**원인 1**: `docker compose kill imu-1`을 사용했는데 Compose에서 서비스 이름은 `imu`이고 컨테이너 이름은 `sv-assignment-imu-1`으로 다름. 명령이 조용히 무시되어 agent가 실제로 종료되지 않은 채 검증이 진행됐음.
+
+**원인 2**: `docker kill`은 프로세스를 즉시 강제 종료하여 TCP 연결이 바로 끊김. controller는 연결이 끊기는 순간 해당 agent를 재시작 대상으로 등록하는데, heartbeat가 오지 않아서 Unhealthy 판정을 내리는 경로와는 다른 경로. 그래서 `Unhealthy` 로그는 찍히지 않음.
+
+**수정**: `docker stop sv-assignment-imu-1`으로 컨테이너 이름을 직접 지정하는 것으로 스크립트 수정.
+
+---
+
+현재 회사에서는 통합 테스트를 사람이 직접 눈으로 확인하는 방식으로만 진행해왔는데, 이번 과제를 통해 단위 테스트로 개별 모듈을 검증한 뒤 통합 테스트 스크립트로 전체 시나리오를 자동으로 검증하는 흐름을 직접 구성해봤습니다. 수동으로 하던 검증을 스크립트로 자동화하면서 테스트가 재현 가능하고 일관성 있게 실행된다는 점이 과제를 수행하면서 정말 좋게 느껴졌습니다.

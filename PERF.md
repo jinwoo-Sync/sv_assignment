@@ -44,6 +44,7 @@ docker stats sv-controller --no-stream --format "CPU={{.CPUPerc}} MEM={{.MemUsag
 | 2024-03-22 | HELLO/HEARTBEAT/STATE/ACK 교환 및 CRC 검증 확인 (1v3) |
 | 2026-03-23 | PolicyEngine 단위 테스트 3/3 통과, CMD_SET_MODE ACK 프로토콜 단위 테스트 3/3 통과 |
 | 2026-03-23 | Docker 7-agent 실 구동 검증: avgLoad=74.73 → safe 모드 전환 확인 |
+| 2026-03-25 | 통합 테스트 시나리오 1~5 실행: PASS 5/5 (docker stop 방식으로 수정 후 전 시나리오 통과) |
 
 ## 6. 단위 테스트 결과
 
@@ -67,7 +68,17 @@ Docker 1 Controller + 7 Agent (camera×3, lidar×1, imu×1, sync_board×1, pc×1
 | CMD_SET_MODE 전송 → ACK 수신 | 확인 |
 | epoll_wait 주기 | 1000 ms |
 
-## 8. TODO
+## 8. Docker 빌드 속도 (2026-03-25)
+
+`docker compose up --build` 실행 시간 측정:
+
+| 상황 | 시간 |
+|------|------|
+| 소스 코드 수정 후 빌드 | 7.7s |
+| 수정 없이 재실행 (캐시 사용) | 1.6s |
+| configs/policy.json만 수정 후 빌드 | 6.0s |
+
+## 9. TODO
 
 - Round-trip latency 자동 계측 스크립트
 - 핫-리로드 (policy.json 변경) 후 CPU 영향 재측정
