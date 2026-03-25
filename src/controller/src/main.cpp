@@ -71,7 +71,7 @@ int main()
             break;
         }
 
-        // 1초 마다 실행 — hot-reload / NACK retry
+        // 1초 마다 실행 — hot-reload / NACK retry / 헬스체크 / dead agent 재시작
         // num_events==0 한정이면 heartbeat 때문에 거의 안 돌아서 여기서 처리
         if (time(nullptr) - last_mtime_check >= 1)
         {
@@ -82,11 +82,6 @@ int main()
                 policyEngine.reload();
             }
             process_nack_retries(agentStreamMap, tcpProtocolCodec);
-        }
-
-        // ── 1초 타임아웃: 헬스체크 / dead agent 재시작 / 정책 평가 ──
-        if (num_events == 0)
-        {
             check_heartbeat_timeouts(epoll_fd, agentStreamMap, dead_agents);
 
             for (auto dead_agent_iterator = dead_agents.begin(); dead_agent_iterator != dead_agents.end(); )
@@ -101,6 +96,11 @@ int main()
                     dead_agent_iterator = std::next(dead_agent_iterator);
                 }
             }
+        }
+
+        // ── 1초 타임아웃: 정책 평가 ──
+        if (num_events == 0)
+        {
 
             for (const auto& agentStreamMap_entry : agentStreamMap)
             {
