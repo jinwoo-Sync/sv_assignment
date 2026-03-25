@@ -115,11 +115,11 @@ bash scripts/run_logs.sh | grep -E "Agent connected|HELLO|HEARTBEAT|STATE|ACK"
 ### 시나리오 2 — 부분 실패 (NACK)
 
 imu-1이 CMD_SET_MODE를 항상 거부하는 상태로 기동됨 (`docker-compose.yml`에 `FAULT_MODE=nack` 설정).
-PolicyEngine이 모드 전환을 감지하면 imu 그룹에 CMD_SET_MODE 전송 → imu가 NACK → 1s 후 retry → fallback.
+PolicyEngine이 모드 전환을 감지하면 imu 그룹에 CMD_SET_MODE 전송 → imu가 NACK → controller 폴백 로깅 후 30s backoff → 재시도 반복.
 
 ```bash
 bash scripts/run_init_step.sh
-bash scripts/run_logs.sh | grep -E "NACK|fallback"
+bash scripts/run_logs.sh | grep -E "NACK|blocked"
 ```
 
 ### 시나리오 3 — 장애/복구
