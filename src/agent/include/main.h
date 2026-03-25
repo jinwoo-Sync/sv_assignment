@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "iframe_handler.h"
+#include "tcp_protocol.h"
 #include "socket_utils.h"
 #include "stream_buffer.h"
 #include "logger_factory.h"

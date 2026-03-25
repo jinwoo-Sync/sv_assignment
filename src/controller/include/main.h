@@ -15,6 +15,8 @@
 #include <unistd.h>
 
 #include "iframe_handler.h"
+#include "protocol.h"
+#include "tcp_protocol.h"
 #include "socket_utils.h"
 #include "stream_buffer.h"
 #include "logger_factory.h"
@@ -51,7 +53,7 @@ enum NackState { NACK_IDLE = 0, NACK_WAIT = 1, NACK_SENT = 2 };
 // ── ControllerFrameHandler ───────────────────────────────────────
 class ControllerFrameHandler : public sv::IFrameHandler {
 public:
-    ControllerFrameHandler(int fd, sv::TcpProtocol& protocol,
+    ControllerFrameHandler(int fd, sv::IProtocol& protocol,
                            std::string& agentId, std::string& group,
                            double& cpu_percent, double& temperature, double& mem_percent,
                            time_t& lastHeartbeat, std::string& last_mode,
@@ -154,7 +156,7 @@ protected:
     }
 
 private:
-    sv::TcpProtocol& m_protocol;
+    sv::IProtocol& m_protocol;
     std::string&     m_agentId;
     std::string&     m_group;
     double&          m_cpu_percent;
@@ -183,7 +185,7 @@ struct AgentStream {
     ControllerFrameHandler                handler;
     sv::SvStreamBuffer                    stream;
 
-    AgentStream(int fd, sv::TcpProtocol& protocol)
+    AgentStream(int fd, sv::IProtocol& protocol)
         : handler(fd, protocol, agentId, group,
                   cpu_percent, temperature, mem_percent, lastHeartbeat, last_mode,
                   nack_state, nack_send_after, last_cmd_seq)
@@ -210,7 +212,7 @@ double calcGroupAvgLoad(const std::string& group,
 // ── 그룹 내 전체 agent에 CMD_SET_MODE 전송 ──────────────────────
 void broadcast_set_mode(const std::string& group, const std::string& mode,
                         std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
-                        sv::TcpProtocol& protocol)
+                        sv::IProtocol& protocol)
 {
     for (auto& agentStreamMap_entry : agentStreamMap)
     {
@@ -237,7 +239,7 @@ void broadcast_set_mode(const std::string& group, const std::string& mode,
 
 // ── NACK retry: 1초 tick에서 호출 — 대기 중인 agent에 CMD_SET_MODE 재전송 ──
 void process_nack_retries(std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
-                          sv::TcpProtocol& protocol)
+                          sv::IProtocol& protocol)
 {
     for (auto& entry : agentStreamMap)
     {
@@ -342,7 +344,7 @@ void close_connection(int fd, int epoll_fd,
 // ── 신규 연결 수락 및 epoll 등록 ────────────────────────────────
 void handle_new_connection(int server_fd, int epoll_fd,
                             std::unordered_map<int, std::unique_ptr<AgentStream>>& agentStreamMap,
-                            sv::TcpProtocol& protocol)
+                            sv::IProtocol& protocol)
 {
     int client_fd = accept(server_fd, nullptr, nullptr);
     if (client_fd < 0) return;
