@@ -128,7 +128,7 @@ agent 컨테이너를 강제 종료하면 controller가 3s 후 Unhealthy 판정,
 
 ```bash
 bash scripts/run_init_step.sh
-docker stop sv-agent-imu-1
+docker stop sv-assignment-imu-1
 bash scripts/run_logs.sh | grep -E "Unhealthy|Restarting|Recovered|Agent connected"
 ```
 
