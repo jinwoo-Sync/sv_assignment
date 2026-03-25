@@ -161,9 +161,8 @@ bash scripts/run_logs.sh | grep -E "hot reload"
 - [x] agent 주기적 HEARTBEAT(1s) 및 STATE 보고
 - [x] 메시지 무결성 검사 (CRC32)
 - [x] 헬스체크 타임아웃 — 3s 미응답 시 Unhealthy, 10s 초과 시 docker restart 재기동 (3s~10s 자가 회복 대기)
-- [ ] 자동 재시도/재연결 (지수 백오프)
 - [x] CMD_SET_MODE 브로드캐스트
-- [-] CMD_SET_MODE 부분 실패 시 재시도 1회 + 30s backoff 구현 / reason="always" 시 즉시 30s 대기 / 지수 백오프(최대 N회) 미구현
+- [-] CMD_SET_MODE 부분 실패 시 재시도 1회 + 30s backoff 구현 / reason="always" 시 즉시 30s 대기
 
 #### 2. 시스템 제어 도메인 로직
 - [x] 정책 엔진 — 평균 부하 > 임계치 시 그룹 모드 변경 (5개 그룹, 3모드: performance/normal/safe)
@@ -188,7 +187,6 @@ bash scripts/run_logs.sh | grep -E "hot reload"
 - [x] 단위 테스트 — Logger (싱글턴/레벨 필터/매크로 3케이스 PASS)
 - [-] 단위 테스트 — MemoryPool (`available()` 초기화 1케이스 PASS / `acquire()/release()` 미구현으로 관련 테스트 주석)
 - [x] 단위 테스트 — PolicyEngine (4케이스 PASS), CMD_SET_MODE ACK 프로토콜 (3케이스 PASS)
-- [ ] 단위 테스트 — TcpProtocol encode/decode 라운드트립, SvStreamBuffer TCP 분할 수신 재조립, 타임아웃 로직
 - [x] 통합 테스트 (Controller–Agent 상호작용 시나리오) — 시나리오 1~5 PASS (`tests/integration/`)
 - [ ] 실패 시나리오 테스트 (네트워크 지연/드랍, 중복 메시지, 잘못된 페이로드, CRC 불일치)
 
