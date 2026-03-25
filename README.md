@@ -45,6 +45,9 @@ cmake --build build -- -j$(nproc)
 ./build.sh Debug
 ctest --test-dir build --output-on-failure
 
+# 누수·UB 없음 증빙 (ASAN + UBSAN, 로그: asset/asan_ubsan.log)
+bash scripts/run_sanitizers.sh
+
 # libs 단독 단위 테스트
 cd src/libs && cmake -S . -B build && cmake --build build -- -j$(nproc)
 ctest --test-dir build --output-on-failure
@@ -169,7 +172,7 @@ python3 scripts/fault_injector.py load   # safe 임계값 5로 낮춤 → 20초 
 #### 3. 동적 메모리 관리
 - [-] 스마트 포인터 사용 — `unique_ptr<AgentStream>`, `shared_ptr<ILogger>` 적용 / move semantics는 FrameQueue에서만 적용
 - [-] 자체 메모리 풀 (메시지 객체 풀링) — 클래스 구현됨, `acquire()/release()` 미구현
-- [ ] ASan/UBSan 누수·UB 없음 증빙
+- [x] ASan/UBSan 누수·UB 없음 증빙 (`asset/asan_ubsan.log` — 11/11 Passed, 에러 없음)
 
 #### 4. 객체지향 설계
 - [x] IProtocol 인터페이스 분리 (`encode/decode`)

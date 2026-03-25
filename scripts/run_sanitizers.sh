@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -e
-cmake -B build-asan -DENABLE_ASAN=ON
-cmake --build build-asan
-ctest --test-dir build-asan --output-on-failure
+{
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON -DENABLE_ASAN=ON -DENABLE_UBSAN=ON
+cmake --build build -- -j$(nproc)
+ctest --test-dir build --output-on-failure
+} 2>&1 | tee asset/asan_ubsan.log

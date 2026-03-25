@@ -1,0 +1,171 @@
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/mobilitytf/Documents/개인/sv_assignment/build
+Consolidate compiler generated dependencies of target sv_logger
+Consolidate compiler generated dependencies of target sv_core
+Consolidate compiler generated dependencies of target gtest
+[ 20%] Building CXX object src/libs/core/CMakeFiles/sv_core.dir/src/tcp_protocol.cpp.o
+[ 20%] Building CXX object _deps/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o
+[ 20%] Building CXX object src/libs/core/CMakeFiles/sv_core.dir/src/stream_buffer.cpp.o
+[ 20%] Building CXX object src/libs/logger/CMakeFiles/sv_logger.dir/src/file_logger.cpp.o
+[ 20%] Building CXX object src/libs/core/CMakeFiles/sv_core.dir/src/memory_pool.cpp.o
+[ 20%] Building CXX object src/libs/logger/CMakeFiles/sv_logger.dir/src/json_logger.cpp.o
+[ 24%] Linking CXX shared library ../../../../bin/Debug/libsv_core.so
+[ 24%] Built target sv_core
+[ 27%] Linking CXX shared library ../../../../bin/Debug/libsv_logger.so
+[ 27%] Built target sv_logger
+Consolidate compiler generated dependencies of target sv_policy
+Consolidate compiler generated dependencies of target agent
+[ 34%] Building CXX object src/agent/CMakeFiles/agent.dir/src/main.cpp.o
+[ 34%] Building CXX object src/libs/policy/CMakeFiles/sv_policy.dir/src/PolicyEngine.cpp.o
+In file included from /home/mobilitytf/Documents/개인/sv_assignment/src/agent/include/main.h:17,
+                 from /home/mobilitytf/Documents/개인/sv_assignment/src/agent/src/main.cpp:1:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onHello(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:34:39: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   34 |     virtual void onHello(const Frame& frame)         {}
+      |                          ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onHeartbeat(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:35:43: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   35 |     virtual void onHeartbeat(const Frame& frame)     {}
+      |                              ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onState(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:36:39: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   36 |     virtual void onState(const Frame& frame)         {}
+      |                          ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onAck(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:37:37: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   37 |     virtual void onAck(const Frame& frame)           {}
+      |                        ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onNack(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:38:38: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   38 |     virtual void onNack(const Frame& frame)          {}
+      |                         ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onCmdStart(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:39:42: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   39 |     virtual void onCmdStart(const Frame& frame)      {}
+      |                             ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onCmdStop(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:40:41: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   40 |     virtual void onCmdStop(const Frame& frame)       {}
+      |                            ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onCmdSetMode(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:41:44: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   41 |     virtual void onCmdSetMode(const Frame& frame)    {}
+      |                               ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onError(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:42:39: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   42 |     virtual void onError(const Frame& frame)         {}
+      |                          ~~~~~~~~~~~~~^~~~~
+In file included from /home/mobilitytf/Documents/개인/sv_assignment/src/agent/src/main.cpp:1:
+/home/mobilitytf/Documents/개인/sv_assignment/src/agent/include/main.h: In member function ‘virtual void AgentFrameHandler::onCmdStart(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/agent/include/main.h:124:38: warning: unused parameter ‘frame’ [-Wunused-parameter]
+  124 |     void onCmdStart(const sv::Frame& frame) override {
+      |                     ~~~~~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/agent/include/main.h: In member function ‘virtual void AgentFrameHandler::onCmdStop(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/agent/include/main.h:129:37: warning: unused parameter ‘frame’ [-Wunused-parameter]
+  129 |     void onCmdStop(const sv::Frame& frame) override {
+      |                    ~~~~~~~~~~~~~~~~~^~~~~
+[ 37%] Linking CXX shared library ../../../../bin/Debug/libsv_policy.so
+[ 37%] Built target sv_policy
+[ 41%] Linking CXX executable ../../../bin/Debug/agent
+Consolidate compiler generated dependencies of target controller
+[ 44%] Building CXX object src/controller/CMakeFiles/controller.dir/src/main.cpp.o
+[ 44%] Built target agent
+In file included from /home/mobilitytf/Documents/개인/sv_assignment/src/controller/include/main.h:18,
+                 from /home/mobilitytf/Documents/개인/sv_assignment/src/controller/src/main.cpp:1:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onHello(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:34:39: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   34 |     virtual void onHello(const Frame& frame)         {}
+      |                          ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onHeartbeat(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:35:43: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   35 |     virtual void onHeartbeat(const Frame& frame)     {}
+      |                              ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onState(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:36:39: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   36 |     virtual void onState(const Frame& frame)         {}
+      |                          ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onAck(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:37:37: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   37 |     virtual void onAck(const Frame& frame)           {}
+      |                        ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onNack(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:38:38: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   38 |     virtual void onNack(const Frame& frame)          {}
+      |                         ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onCmdStart(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:39:42: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   39 |     virtual void onCmdStart(const Frame& frame)      {}
+      |                             ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onCmdStop(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:40:41: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   40 |     virtual void onCmdStop(const Frame& frame)       {}
+      |                            ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onCmdSetMode(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:41:44: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   41 |     virtual void onCmdSetMode(const Frame& frame)    {}
+      |                               ~~~~~~~~~~~~~^~~~~
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h: In member function ‘virtual void sv::IFrameHandler::onError(const sv::Frame&)’:
+/home/mobilitytf/Documents/개인/sv_assignment/src/libs/core/include/iframe_handler.h:42:39: warning: unused parameter ‘frame’ [-Wunused-parameter]
+   42 |     virtual void onError(const Frame& frame)         {}
+      |                          ~~~~~~~~~~~~~^~~~~
+[ 48%] Linking CXX executable ../../../bin/Debug/controller
+[ 48%] Built target controller
+[ 51%] Linking CXX static library ../../../lib/libgtest.a
+[ 51%] Built target gtest
+Consolidate compiler generated dependencies of target gtest_main
+Consolidate compiler generated dependencies of target gmock
+[ 58%] Building CXX object _deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o
+[ 58%] Building CXX object _deps/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o
+[ 62%] Linking CXX static library ../../../lib/libgtest_main.a
+[ 62%] Built target gtest_main
+Consolidate compiler generated dependencies of target test_logger
+Consolidate compiler generated dependencies of target test_memory_pool
+Consolidate compiler generated dependencies of target test_cmd_set_mode_ack
+Consolidate compiler generated dependencies of target test_policy_engine
+[ 72%] Building CXX object tests/unit/CMakeFiles/test_memory_pool.dir/test_memory_pool.cpp.o
+[ 72%] Building CXX object tests/unit/CMakeFiles/test_cmd_set_mode_ack.dir/test_cmd_set_mode_ack.cpp.o
+[ 72%] Building CXX object tests/unit/CMakeFiles/test_logger.dir/test_logger.cpp.o
+[ 75%] Building CXX object tests/unit/CMakeFiles/test_policy_engine.dir/test_policy_engine.cpp.o
+[ 79%] Linking CXX executable ../../../bin/Debug/test_memory_pool
+[ 82%] Linking CXX executable ../../../bin/Debug/test_logger
+[ 89%] Linking CXX executable ../../../bin/Debug/test_policy_engine
+[ 89%] Linking CXX executable ../../../bin/Debug/test_cmd_set_mode_ack
+[ 89%] Built target test_memory_pool
+[ 89%] Built target test_logger
+[ 89%] Built target test_policy_engine
+[ 89%] Built target test_cmd_set_mode_ack
+[ 93%] Linking CXX static library ../../../lib/libgmock.a
+[ 93%] Built target gmock
+Consolidate compiler generated dependencies of target gmock_main
+[ 96%] Building CXX object _deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o
+[100%] Linking CXX static library ../../../lib/libgmock_main.a
+[100%] Built target gmock_main
+Internal ctest changing into directory: /home/mobilitytf/Documents/개인/sv_assignment/build
+Test project /home/mobilitytf/Documents/개인/sv_assignment/build
+      Start  1: LoggerTest.InitAndGet
+ 1/11 Test  #1: LoggerTest.InitAndGet ....................................   Passed    0.02 sec
+      Start  2: LoggerTest.LogLevelFilter
+ 2/11 Test  #2: LoggerTest.LogLevelFilter ................................   Passed    0.02 sec
+      Start  3: LoggerTest.MacrosDoNotCrash
+ 3/11 Test  #3: LoggerTest.MacrosDoNotCrash ..............................   Passed    0.02 sec
+      Start  4: MemoryPoolTest.InitialAvailableCountMatchesBufferCount
+ 4/11 Test  #4: MemoryPoolTest.InitialAvailableCountMatchesBufferCount ...   Passed    0.02 sec
+      Start  5: PolicyEngineTest.AboveSafeThresholdReturnsSafe
+ 5/11 Test  #5: PolicyEngineTest.AboveSafeThresholdReturnsSafe ...........   Passed    0.02 sec
+      Start  6: PolicyEngineTest.SameModeReturnsEmpty
+ 6/11 Test  #6: PolicyEngineTest.SameModeReturnsEmpty ....................   Passed    0.02 sec
+      Start  7: PolicyEngineTest.DeadZoneKeepsCurrentMode
+ 7/11 Test  #7: PolicyEngineTest.DeadZoneKeepsCurrentMode ................   Passed    0.02 sec
+      Start  8: PolicyEngineTest.ModeTransitionNormalToSafe
+ 8/11 Test  #8: PolicyEngineTest.ModeTransitionNormalToSafe ..............   Passed    0.02 sec
+      Start  9: CmdSetModeAckTest.CmdSetModeFrameRoundTrip
+ 9/11 Test  #9: CmdSetModeAckTest.CmdSetModeFrameRoundTrip ...............   Passed    0.02 sec
+      Start 10: CmdSetModeAckTest.AckFrameRoundTrip
+10/11 Test #10: CmdSetModeAckTest.AckFrameRoundTrip ......................   Passed    0.02 sec
+      Start 11: CmdSetModeAckTest.AckSeqMirrorsCmdSeq
+11/11 Test #11: CmdSetModeAckTest.AckSeqMirrorsCmdSeq ....................   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 11
+
+Total Test time (real) =   0.18 sec
