@@ -1,6 +1,82 @@
 # sv_assignment — Controller–Agent 분산 장치 관리 시스템
 
-C++14 + epoll 기반. 단일 Controller가 다수 Agent를 논블로킹 I/O로 관리. 1:50 스케일 검증 완료.
+## 의존성
+
+```bash
+sudo apt-get install -y build-essential cmake pkg-config nlohmann-json3-dev git valgrind docker.io docker-compose
+```
+
+---
+
+## 빌드
+
+```bash
+git clone --recurse-submodules https://github.com/jinwoo-Sync/sv_assignment
+cd sv_assignment
+./build.sh Release
+```
+
+> `src/libs`가 submodule로 분리되어 있어 `--recurse-submodules` 없이 클론하면 빌드 시 헤더를 찾지 못합니다.
+> 이미 클론한 경우: `git submodule update --init --recursive`
+
+libs 단독 빌드:
+```bash
+cd src/libs
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -- -j$(nproc)
+```
+
+---
+
+## 실행
+
+```bash
+./run_init_step.sh   # Controller 1 + agents.json 구성대로 기동
+./run_logs.sh        # 로그 확인
+./run_stop.sh        # 종료
+```
+
+---
+
+## 테스트
+
+```bash
+# 단위 테스트
+./build.sh Debug
+ctest --test-dir build --output-on-failure
+
+# libs 단독 단위 테스트
+cd src/libs && cmake -S . -B build && cmake --build build -- -j$(nproc)
+ctest --test-dir build --output-on-failure
+
+# 통합 테스트 (시나리오 1~5)
+bash tests/integration/test_scenarios.sh
+
+# 시나리오 3 단독
+bash tests/integration/test_scenario3.sh
+
+# 스케일 통합 테스트
+./test_epoll_scale.sh 50
+```
+
+---
+
+## 프로젝트 구조
+
+```
+sv_assignment/
+├── src/
+│   ├── controller/        # epoll 서버 (9090)
+│   ├── agent/             # 비동기 클라이언트
+│   └── libs/              # git submodule
+│       ├── core/          # MemoryPool, TcpProtocol, SvStreamBuffer 등
+│       ├── logger/        # sv_logger
+│       └── policy/        # IPolicyEngine, PolicyEngine (3모드)
+├── configs/               # policy.json (임계치), agents.json (그룹·개수)
+├── scripts/               # fault_injector.py, run_sanitizers.sh 등
+├── tests/unit/            # gtest 단위 테스트
+└── docker/                # Dockerfile, docker-compose.yml
+```
 
 ---
 
@@ -156,94 +232,6 @@ python3 scripts/fault_injector.py load   # safe 임계값 5로 낮춤 → 20초 
 - [-] 테스트/TDD — 커버리지, 실패 시나리오, 테스트 독립성/속도 `10점`
 - [-] 빌드/배포/운영 — CMake 구조, Docker 멀티스테이지, 로그/메트릭 `5점`
 - [ ] 성능/프로파일링 — 측정/분석/개선 근거 제시 `5점`
-
----
-
-## 의존성
-
-```bash
-sudo apt-get install -y build-essential cmake pkg-config nlohmann-json3-dev git valgrind docker.io docker-compose
-```
-
----
-
-## 빌드
-
-```bash
-git clone --recurse-submodules https://github.com/jinwoo-Sync/sv_assignment
-```
-
-> `src/libs`가 submodule로 분리되어 있어 `--recurse-submodules` 없이 클론하면 빌드 시 헤더를 찾지 못합니다.
-> 이미 클론한 경우: `git submodule update --init --recursive`
-
-```bash
-./build.sh Debug    # → bin/Debug/   (단위 테스트 포함)
-./build.sh Release  # → bin/Release/ (Docker 배포용)
-```
-
-libs 단독 빌드:
-```bash
-cd src/libs
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -- -j$(nproc)
-```
-
----
-
-## 실행
-
-```bash
-# Controller 1 + agents.json에 정의된 그룹/개수대로 기동
-./run_init_step.sh   # camera×2, lidar×1, imu×1, sync_board×1, pc×1
-
-# 로그 확인
-./run_logs.sh
-
-# 종료
-./run_stop.sh
-```
-
----
-
-## 테스트
-
-```bash
-# 전체 단위 테스트
-./build.sh Debug
-ctest --test-dir build --output-on-failure
-
-# libs 단독 단위 테스트
-cd src/libs && cmake -S . -B build && cmake --build build -- -j$(nproc)
-ctest --test-dir build --output-on-failure
-
-# 스케일 통합 테스트
-./test_epoll_scale.sh 50
-
-# 통합 테스트 (시나리오 1~5)
-bash tests/integration/test_scenarios.sh
-
-# 시나리오 3 단독
-bash tests/integration/test_scenario3.sh
-```
-
----
-
-## 프로젝트 구조
-
-```
-sv_assignment/
-├── src/
-│   ├── controller/        # epoll 서버 (9090)
-│   ├── agent/             # 비동기 클라이언트
-│   └── libs/
-│       ├── core/          # MemoryPool, TcpProtocol, SvStreamBuffer 등
-│       ├── logger/        # sv_logger
-│       └── policy/        # IPolicyEngine, PolicyEngine (3모드)
-├── configs/               # policy.json (임계치), agents.json (그룹·개수)
-├── scripts/               # fault_injector.py, run_sanitizers.sh 등
-├── tests/unit/            # gtest 단위 테스트
-└── docker/                # Dockerfile, docker-compose.yml
-```
 
 ---
 
